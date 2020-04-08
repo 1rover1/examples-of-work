@@ -1,0 +1,454 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "Parent Template",
+  
+  "Parameters" : {
+      
+    "Base14amiid" : {
+      "Description"                      : "Base 14:04 image ID",
+      "Type"                             : "String",
+      "Default"                          : "ami-28f4384a"
+    },
+
+    "Base12amiid" : {
+      "Description"                      : "Base 12:04 image ID",
+      "Type"                             : "String",
+      "Default"                          : "ami-b87e6ddb"
+    },
+
+    "KeyName": {
+      "Description"                      : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type"                             : "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription"            : "must be the name of an existing EC2 KeyPair."
+    },
+    
+    "S3Bucket" : {
+      "Description"                      : "Bucket Containing application config files",
+      "Type"                             : "String",
+      "Default"                          : "cf-configs-apac",
+      "AllowedPattern"                   : "[a-zA-Z0-9-]+",
+      "ConstraintDescription"            : "must contain only alpha numeric characters and dashes."
+    },
+    
+    "Domain" : {
+      "Description"                      : "Domain name, e.g. example.co.uk, example.fr, us.example.com, etc",
+      "Type"                             : "AWS::Route53::HostedZone::Id",
+      "ConstraintDescription"            : "Must be an existing hosted zone"
+    },
+
+    "SSLArn" : {
+      "Description"                      : "SSL ARN",
+      "Type"                             : "String",
+      "Default"                          : "arn:aws:iam::255273130232:server-certificate/apac.example.com"
+    },
+    
+    "EnvironmentType" : {
+      "Type"                             : "String",
+      "Description"                      : "dev, test, staging, uat, demo, etc.",
+      "Default"                          : "uat"
+    },
+
+    "MainRDSSnapshot" : {
+      "Type"                             : "String",
+      "Description"                      : "Data RDS snapshot ID to create new database from. Contains TLIVE,CARRIER_DATA,bulk_processing,finance,mws,single_sign_on,tracking",
+      "Default"                          : "arn:aws:rds:ap-southeast-2:255273130232:snapshot:apac-main"
+    },
+
+    "LogRDSSnapshot" : {
+      "Type"                             : "String",
+      "Description"                      : "Log RDS snapshot ID to create new database from. Contains audit,avs,kpi_dashboard",
+      "Default"                          : "arn:aws:rds:ap-southeast-2:255273130232:snapshot:apac-logging"
+    },
+
+    "TbridgeRDSSnapshot" : {
+      "Type"                             : "String",
+      "Description"                      : "TBRIDGE RDS snapshot ID to create new database from.  Leave blank to create an empty database.",
+      "Default"                          : "arn:aws:rds:ap-southeast-2:255273130232:snapshot:apac-tbridge"
+    },
+
+    "SAUser" : {
+      "Type"                             : "String",
+      "Description"                      : "SA account name.  If restoring from snapshot, enter credentials for snapshot.",
+      "Default"                          : "root"
+    },
+    
+    "SAPass" : {
+      "Type"                             : "String",
+      "Description"                      : "SysAdmin account password.  If restoring from snapshot, enter credentials for snapshot.",
+      "Default"                          : "PasswordRDS",
+      "NoEcho"                           : "true"
+    },
+    
+    "DBStorage" : {
+      "Type"                             : "String",
+      "Description"                      : "Amount of storage to allocate to DB in GB.  Leave blank if restoring from snapshot.",
+      "Default"                          : "512"
+    },
+   
+    "AppDBWriteAccessUser": {
+      "Type"                             : "String",
+      "Description"                      : "Application DB write user account",
+      "Default"                          : "tnewsite"
+    },
+
+    "AppDBWriteAccessPass" : {
+      "Type"                             : "String",
+      "Description"                      : "Application DB write user password",
+      "Default"                          : "Passwordtnewsite",
+      "NoEcho"                           : "true"
+    },
+
+    "AppDBReadAccessUser" : {
+      "Type"                             : "String",
+      "Description"                      : "Application DB user account name",
+      "Default"                          : "tlive_readonly"
+    },
+
+    "AppDBReadAccessPass" : {
+      "Type"                             : "String",
+      "Description"                      : "Application DB read user password",
+      "Default"                          : "PasswordReadOnly",
+      "NoEcho"                           : "true"
+    },
+
+    "Nat1EipAllocationID" : {
+      "Type"                             : "String",
+      "Default"                          : "eipalloc-xxxxxxxx",
+      "Description"                      : "Use any non associated EIP "
+    },
+
+    "Nat2EipAllocationID" : {
+      "Type"                             : "String",
+      "Default"                          : "eipalloc-xxxxxxxx",
+      "Description"                      : "Use any non associated EIP"
+    },
+ 
+    "AlertsEmail" : {
+      "Type"                             : "String",
+      "Description"                      : "Email to send SNS alerts to",
+      "Default"                          : "alerts@example.com"
+    },
+  
+    "VpcCidrPrefix" : {
+      "Description"                      : "First 2 numbers of IP VPC CIDR, separated by a dot",
+      "Type"                             : "String",
+      "Default"                          : "10.23"
+    }
+  
+  },
+  
+  "Conditions" : {
+    "IsProduction" : {
+      "Fn::Equals": [ { "Ref" : "EnvironmentType" }, "production" ] 
+    }
+  },
+  
+  "Resources" : {
+    
+    "Vpc" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "Properties" : {
+        "Parameters" : { 
+          "VpcCidr"             : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "PublicSubnet1Cidr"   : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/25"]] },
+          "PublicSubnet2Cidr"   : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.128/25"]] },
+          "PrivateSubnet1Cidr"  : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".1.0/25"]] },
+          "PrivateSubnet2Cidr"  : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".1.128/25"]] },
+          "Nat1EipAllocationID" : { "Ref" : "Nat1EipAllocationID" },
+          "Nat2EipAllocationID" : { "Ref" : "Nat2EipAllocationID" }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/vpc.json",
+        "TimeoutInMinutes" : "5"
+      }
+    },
+    
+    "Globals" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : "Vpc",
+      "Properties" : {
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/globals.json",
+        "TimeoutInMinutes" : "2",
+        "Parameters" : {
+          "VpcId" : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "AlertsEmail" : {"Ref" : "AlertsEmail" }
+        }
+      }
+    },
+    
+    "FileSystem" : {
+        "Type" : "AWS::EFS::FileSystem",
+        "DependsOn" : ["Vpc", "Globals"]
+    },
+    
+    "EfsSecurityGroup" : {
+      "Type"                            : "AWS::EC2::SecurityGroup",
+      "DependsOn"                       : "FileSystem",
+      "Properties" : {
+        "GroupDescription"              : "Allow external access to MGT",
+        "VpcId"                         : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+        "SecurityGroupIngress"          : [{
+          "IpProtocol"                  : "-1",
+          "FromPort"                    : "-1",
+          "ToPort"                      : "-1",
+          "CidrIp"                      : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] }
+        }]
+     }
+    },
+    
+    "MountTarget1" : {
+        "Type" : "AWS::EFS::MountTarget",
+        "DependsOn" : "EfsSecurityGroup",
+        "Properties" : {
+          "FileSystemId"   : { "Ref" : "FileSystem" },
+          "SecurityGroups" : [ { "Fn::GetAtt" : [ "Globals", "Outputs.InstanceSG" ] }, { "Ref" : "EfsSecurityGroup" } ],
+          "SubnetId" : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] }
+        }
+    },
+    
+    "MountTarget2" : {
+        "Type" : "AWS::EFS::MountTarget",
+        "DependsOn" : "EfsSecurityGroup",
+        "Properties" : {
+          "FileSystemId"   : { "Ref" : "FileSystem" },
+          "SecurityGroups" : [ { "Fn::GetAtt" : [ "Globals", "Outputs.InstanceSG" ] }, { "Ref" : "EfsSecurityGroup" } ],
+          "SubnetId" : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] }
+        }
+    },
+    
+    "Elasticache" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Globals", "Vpc" ],
+      "Properties" : {
+        "Parameters" : { 
+          "VPC"                 : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "Subnet1"             : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet1" ] },
+          "Subnet2"             : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet2" ] },
+          "EnvironmentType"     : { "Ref" : "EnvironmentType" },
+          "InstanceSG"          : { "Fn::GetAtt" : [ "Globals", "Outputs.InstanceSG" ] }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/elasticache.json",
+        "TimeoutInMinutes" : "20"
+      }
+    },
+    
+    "Api" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Vpc", "Globals", "MainRDS" ],
+      "Properties" : {
+        "Parameters" : { 
+          "Base14amiid"            : { "Ref" : "Base14amiid" },
+          "VPC"                    : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "PublicSubnet1"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet1" ] },
+          "PublicSubnet2"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet2" ] },
+          "PrivateSubnet1"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] },
+          "PrivateSubnet2"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] },
+          "FileSystem"             : { "Fn::Join": [".", [{"Ref": "FileSystem"}, "efs", { "Ref": "AWS::Region" }, "amazonaws.com"]] },
+          "KeyName"                : { "Ref" : "KeyName" },
+          "S3Bucket"               : { "Ref" : "S3Bucket" },
+          "S3Prefix"               : "api",
+          "Domain"                 : { "Ref" : "Domain" },
+          "SSLArn"                 : { "Ref" : "SSLArn" },
+          "EnvironmentType"        : { "Ref" : "EnvironmentType" },
+          "InstanceSecurityGroup"  : { "Fn::GetAtt" : [ "Globals", "Outputs.InstanceSG" ] },
+          "Elasticache"            : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheEndpoint" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS", "Outputs.MainRDSEndpoint" ] },
+          "TbridgeDatabase"        : { "Fn::GetAtt" : [ "MainRDS", "Outputs.TbridgeRDSEndpoint" ] },
+          "LogDatabase"            : { "Fn::GetAtt" : [ "MainRDS", "Outputs.LoggingRDSEndpoint" ] },
+          "DBUser"                 : { "Ref" : "AppDBWriteAccessUser" },
+          "DBPass"                 : { "Ref" : "AppDBWriteAccessPass" },
+          "VpcCidr"                : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "RedisID"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.RedisID" ] },
+          "EmailAlertTopic"        : { "Fn::GetAtt" : [ "Globals", "Outputs.SNSTopic" ] }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/web.json",
+        "TimeoutInMinutes" : "20"
+      }
+    },
+
+    
+    "PDF" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Vpc", "Globals", "MainRDS" ],
+      "Properties" : {
+        "Parameters" : {
+          "Base14amiid"            : { "Ref" : "Base14amiid" },
+          "VPC"                    : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "PublicSubnet1"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet1" ] },
+          "PublicSubnet2"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet2" ] },
+          "PrivateSubnet1"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] },
+          "PrivateSubnet2"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] },
+          "FileSystem"             : { "Fn::Join": [".", [{"Ref": "FileSystem"}, "efs", { "Ref": "AWS::Region" }, "amazonaws.com"]] },
+          "KeyName"                : { "Ref" : "KeyName" },
+          "S3Bucket"               : { "Ref" : "S3Bucket" },
+          "S3Prefix"               : "pdf",
+          "Domain"                 : { "Ref" : "Domain" },
+          "SSLArn"                 : { "Ref" : "SSLArn" },
+          "EnvironmentType"        : { "Ref" : "EnvironmentType" },
+          "InstanceSecurityGroup"  : { "Fn::GetAtt" : [ "Globals",     "Outputs.InstanceSG" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS",     "Outputs.MainRDSEndpoint" ] },
+          "TbridgeDatabase"        : { "Fn::GetAtt" : [ "MainRDS",     "Outputs.TbridgeRDSEndpoint" ] },
+          "Elasticache"            : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheEndpoint" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS", "Outputs.MainRDSEndpoint" ] },
+          "LogDatabase"            : { "Fn::GetAtt" : [ "MainRDS", "Outputs.LoggingRDSEndpoint" ] },
+          "DBUser"                 : { "Ref" : "AppDBWriteAccessUser" },
+          "DBPass"                 : { "Ref" : "AppDBWriteAccessPass" },
+          "VpcCidr"                : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "MemcacheID"             : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheID" ] },
+          "RedisID"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.RedisID" ] },
+          "EmailAlertTopic"        : { "Fn::GetAtt" : [ "Globals", "Outputs.SNSTopic" ] }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/web.json",
+        "TimeoutInMinutes" : "20"
+      }
+    },
+
+    "Jobs" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Vpc", "Globals", "MainRDS" ],
+      "Properties" : {
+        "Parameters" : { 
+          "Base12amiid"            : { "Ref" : "Base12amiid" },
+          "VPC"                    : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "PublicSubnet1"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet1" ] },
+          "PublicSubnet2"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet2" ] },
+          "PrivateSubnet1"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] },
+          "PrivateSubnet2"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] },
+          "KeyName"                : { "Ref" : "KeyName" },
+          "S3Bucket"               : { "Ref" : "S3Bucket" },
+          "S3Prefix"               : "jobs",
+          "Domain"                 : { "Ref" : "Domain" },
+          "SSLArn"                 : { "Ref" : "SSLArn" },
+          "EnvironmentType"        : { "Ref" : "EnvironmentType" },
+          "InstanceSecurityGroup"  : { "Fn::GetAtt" : [ "Globals",     "Outputs.InstanceSG" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS",     "Outputs.MainRDSEndpoint" ] },
+          "Elasticache"            : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheEndpoint" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS", "Outputs.MainRDSEndpoint" ] },
+          "LogDatabase"            : { "Fn::GetAtt" : [ "MainRDS", "Outputs.LoggingRDSEndpoint" ] },
+          "TbridgeDatabase"        : { "Fn::GetAtt" : [ "MainRDS", "Outputs.TbridgeRDSEndpoint" ] },
+          "DBUser"                 : { "Ref" : "AppDBWriteAccessUser" },
+          "DBPass"                 : { "Ref" : "AppDBWriteAccessPass" },
+          "VpcCidr"                : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "MemcacheID"             : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheID" ] },
+          "RedisID"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.RedisID" ] },
+          "EmailAlertTopic"        : { "Fn::GetAtt" : [ "Globals", "Outputs.SNSTopic" ] }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/jobs.json",
+        "TimeoutInMinutes" : "40"
+      }
+    },
+
+    "Mgt" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Vpc", "Globals", "MainRDS" ],
+      "Properties" : {
+        "Parameters" : {
+          "Base14amiid"            : { "Ref" : "Base14amiid" },
+          "VPC"                    : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "PublicSubnet1"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet1" ] },
+          "PublicSubnet2"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet2" ] },
+          "PrivateSubnet1"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] },
+          "PrivateSubnet2"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] },
+          "FileSystem"             : { "Fn::Join": [".", [{"Ref": "FileSystem"}, "efs", { "Ref": "AWS::Region" }, "amazonaws.com"]] },
+          "KeyName"                : { "Ref" : "KeyName" },
+          "S3Bucket"               : { "Ref" : "S3Bucket" },
+          "S3Prefix"               : "mgt",
+          "Domain"                 : { "Ref" : "Domain" },
+          "SSLArn"                 : { "Ref" : "SSLArn" },
+          "EnvironmentType"        : { "Ref" : "EnvironmentType" },
+          "InstanceSecurityGroup"  : { "Fn::GetAtt" : [ "Globals",     "Outputs.InstanceSG" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS",     "Outputs.MainRDSEndpoint" ] },
+          "Elasticache"            : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheEndpoint" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS", "Outputs.MainRDSEndpoint" ] },
+          "LogDatabase"            : { "Fn::GetAtt" : [ "MainRDS", "Outputs.LoggingRDSEndpoint" ] },
+          "TbridgeDatabase"        : { "Fn::GetAtt" : [ "MainRDS", "Outputs.TbridgeRDSEndpoint" ] },
+          "DBUser"                 : { "Ref" : "AppDBWriteAccessUser" },
+          "DBPass"                 : { "Ref" : "AppDBWriteAccessPass" },
+          "VpcCidr"                : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "MemcacheID"             : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheID" ] },
+          "RedisID"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.RedisID" ] },
+          "EmailAlertTopic"        : { "Fn::GetAtt" : [ "Globals", "Outputs.SNSTopic" ] }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/mgt.json",
+        "TimeoutInMinutes" : "40"
+      }
+    },
+
+    "Dashboard" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Vpc", "Globals", "MainRDS" ],
+      "Properties" : {
+        "Parameters" : {
+          "Base14amiid"            : { "Ref" : "Base14amiid" },
+          "VPC"                    : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "PublicSubnet1"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet1" ] },
+          "PublicSubnet2"          : { "Fn::GetAtt" : [ "Vpc", "Outputs.PublicSubnet2" ] },
+          "PrivateSubnet1"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] },
+          "PrivateSubnet2"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] },
+          "FileSystem"             : { "Fn::Join": [".", [{"Ref": "FileSystem"}, "efs", { "Ref": "AWS::Region" }, "amazonaws.com"]] },
+          "KeyName"                : { "Ref" : "KeyName" },
+          "S3Bucket"               : { "Ref" : "S3Bucket" },
+          "S3Prefix"               : "dashboard",
+          "Domain"                 : { "Ref" : "Domain" },
+          "SSLArn"                 : { "Ref" : "SSLArn" },
+          "EnvironmentType"        : { "Ref" : "EnvironmentType" },
+          "InstanceSecurityGroup"  : { "Fn::GetAtt" : [ "Globals",     "Outputs.InstanceSG" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS",     "Outputs.MainRDSEndpoint" ] },
+          "Elasticache"            : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheEndpoint" ] },
+          "Database"               : { "Fn::GetAtt" : [ "MainRDS", "Outputs.MainRDSEndpoint" ] },
+          "LogDatabase"            : { "Fn::GetAtt" : [ "MainRDS", "Outputs.LoggingRDSEndpoint" ] },
+          "TbridgeDatabase"        : { "Fn::GetAtt" : [ "MainRDS", "Outputs.TbridgeRDSEndpoint" ] },
+          "DBUser"                 : { "Ref" : "AppDBWriteAccessUser" },
+          "DBPass"                 : { "Ref" : "AppDBWriteAccessPass" },
+          "VpcCidr"                : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "MemcacheID"             : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheID" ] },
+          "RedisID"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.RedisID" ] },
+          "EmailAlertTopic"        : { "Fn::GetAtt" : [ "Globals", "Outputs.SNSTopic" ] }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/web.json",
+        "TimeoutInMinutes" : "40"
+      }
+    },
+
+    "MainRDS" : {
+      "Type" : "AWS::CloudFormation::Stack",
+      "DependsOn" : [ "Vpc", "Globals" ],
+      "Properties" : {
+        "Parameters" : { 
+          "VpcId"                  : { "Fn::GetAtt" : [ "Vpc", "Outputs.VpcId" ] },
+          "PrivateSubnet1"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet1" ] },
+          "PrivateSubnet2"         : { "Fn::GetAtt" : [ "Vpc", "Outputs.PrivateSubnet2" ] },
+          "EnvironmentType"        : { "Ref" : "EnvironmentType" },
+          "InstanceSecurityGroup"  : { "Fn::GetAtt" : [ "Globals", "Outputs.InstanceSG" ] },
+          "MainRDSSnapshot"        : { "Ref" : "MainRDSSnapshot" },
+          "LogRDSSnapshot"         : { "Ref" : "LogRDSSnapshot" },
+          "TbridgeRDSSnapshot"     : { "Ref" : "TbridgeRDSSnapshot" },
+          "SAUser"                 : { "Ref" : "SAUser" },
+          "SAPass"                 : { "Ref" : "SAPass" },
+          "VpcCidr"                : { "Fn::Join": ["", [{"Ref": "VpcCidrPrefix"}, ".0.0/16"]] },
+          "DBStorage"              : { "Ref" : "DBStorage" }
+        },
+        "TemplateURL" : "https://s3-ap-southeast-2.amazonaws.com/cf-templates-apac/rds.json",
+        "TimeoutInMinutes" : "20"
+      }
+    }
+  },
+  
+  "Outputs" : {
+    
+    "Memcached" : {
+      "Description"          : "Endpoint",
+      "Value"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheEndpoint" ] }
+    },
+    
+    "MemcacheID" : {
+      "Description"          : "Endpoint",
+      "Value"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.MemcacheID" ] }
+    },
+
+    "RedisId" : {
+      "Description"          : "Endpoint",
+      "Value"                : { "Fn::GetAtt" : [ "Elasticache", "Outputs.RedisID" ] }
+    }
+  }
+}

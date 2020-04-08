@@ -1,0 +1,265 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  
+  "Description" : "VPC",
+  
+  "Parameters" : {
+    "VpcCidr" : {
+      "Description"                        : "VPC CIDR",
+      "Type"                               : "String",
+      "Default"                            : "10.16.0.0/16"
+    },
+
+    "Nat1EipAllocationID" : {
+      "Type"                               : "String",
+      "Default"                            : "eipalloc-xxxxxxxx",
+      "Description"                        : "Managed Nat EIP Allocation ID"
+    },
+
+    "Nat2EipAllocationID" : {
+      "Type"                               : "String",
+      "Default"                            : "eipalloc-xxxxxxxx",
+      "Description"                        : "Managed Nat EIP Allocation ID"
+    },
+    
+    "PublicSubnet1Cidr" : {
+      "Description"                        : "Public Subnet 1 CIDR",
+      "Type"                               : "String",
+      "Default"                            : "10.16.0.0/25"
+    },
+    
+    "PublicSubnet2Cidr" : {
+      "Description"                        : "Public Subnet 2 CIDR",
+      "Type"                               : "String",
+      "Default"                            : "10.16.1.0/25"
+    },
+    
+    "PrivateSubnet1Cidr" : {
+      "Description"                        : "Private Subnet 1 CIDR",
+      "Type"                               : "String",
+      "Default"                            : "10.16.2.0/25"
+    },
+    
+    "PrivateSubnet2Cidr" : {
+      "Description"                        : "Private Subnet 2 CIDR",
+      "Type"                               : "String",
+      "Default"                            : "10.16.3.0/25"
+    }
+  },
+  
+  "Mappings" : {
+    "Region2AZ" : {
+      "us-west-1"        : { "AZa" : "us-west-1a",      "AZb" : "us-west-1b" },
+      "us-west-2"        : { "AZa" : "us-west-2a",      "AZb" : "us-west-2b" },
+      "us-east-1"        : { "AZa" : "us-east-1b",      "AZb" : "us-east-1c" },
+      "eu-west-1"        : { "AZa" : "eu-west-1a",      "AZb" : "eu-west-1b" },
+      "eu-central-1"     : { "AZa" : "eu-central-1a",   "AZb" : "eu-central-1b" },
+      "ap-southeast-1"   : { "AZa" : "ap-southeast-1a", "AZb" : "ap-southeast-1b" },
+      "ap-southeast-2"   : { "AZa" : "ap-southeast-2a", "AZb" : "ap-southeast-2b" },
+      "ap-northeast-1"   : { "AZa" : "ap-northeast-1a", "AZb" : "ap-northeast-1c" },
+      "sa-east-1"        : { "AZa" : "sa-east-1a",      "AZb" : "sa-east-1b" }
+    }
+  },
+  
+  "Resources" : {
+      
+    "Vpc" : {
+      "Type"                  : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock"           : { "Ref" : "VpcCidr" },
+        "EnableDnsSupport"    : "true",
+        "EnableDnsHostnames"  : "true"
+      }
+    },
+    
+    "PublicSubnet1" : {
+      "Type"                  : "AWS::EC2::Subnet",
+      "Properties" : {
+        "VpcId"               : { "Ref" : "Vpc" },
+        "CidrBlock"           : { "Ref" : "PublicSubnet1Cidr" },
+        "AvailabilityZone"    : { "Fn::FindInMap" : [ "Region2AZ", { "Ref" : "AWS::Region" }, "AZa" ] }
+      }
+    },
+    
+    "PublicSubnet2" : {
+      "Type"                  : "AWS::EC2::Subnet",
+      "Properties" : {
+        "VpcId"               : { "Ref" : "Vpc" },
+        "CidrBlock"           : { "Ref" : "PublicSubnet2Cidr" },
+        "AvailabilityZone"    : { "Fn::FindInMap" : [ "Region2AZ", { "Ref" : "AWS::Region" }, "AZb" ] }
+      }
+    },
+    
+    "PrivateSubnet1" : {
+      "Type"                  : "AWS::EC2::Subnet",
+      "Properties" : {
+        "VpcId"               : { "Ref" : "Vpc" },
+        "CidrBlock"           : { "Ref" : "PrivateSubnet1Cidr" },
+        "AvailabilityZone"    : { "Fn::FindInMap" : [ "Region2AZ", { "Ref" : "AWS::Region" }, "AZa" ] }
+      }
+    },
+    
+    "PrivateSubnet2" : {
+      "Type"                  : "AWS::EC2::Subnet",
+      "Properties" : {
+        "VpcId"               : { "Ref" : "Vpc" },
+        "CidrBlock"           : { "Ref" : "PrivateSubnet2Cidr" },
+        "AvailabilityZone"    : { "Fn::FindInMap" : [ "Region2AZ", { "Ref" : "AWS::Region" }, "AZb" ] }
+      }
+    },
+    
+    "InternetGateway": {
+      "Type"                  : "AWS::EC2::InternetGateway",
+      "Properties": { }
+    },
+    
+    "GatewayToInternet": {
+      "Type"                  : "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId"               : { "Ref": "Vpc" },
+        "InternetGatewayId"   : { "Ref": "InternetGateway" }
+     }
+    },
+   
+    "PublicSubnetRouteTable": {
+      "Type"                  : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId"               : { "Ref": "Vpc" }
+      }
+    },
+    
+    "PrivateSubnetRouteTable1": {
+      "Type"                  : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId"               : { "Ref": "Vpc" }
+      }
+    },
+    
+    "PrivateSubnetRouteTable2": {
+      "Type"                  : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId"               : { "Ref": "Vpc" }
+      }
+    },
+
+    "Nat1" : {
+      "Type"                  : "AWS::EC2::NatGateway",
+      "Properties" : {
+        "AllocationId"        : { "Ref" : "Nat1EipAllocationID"},
+        "SubnetId"            : { "Ref" : "PublicSubnet1"}
+      }
+    },
+
+    "Nat2" : {
+      "Type"                  : "AWS::EC2::NatGateway",
+      "Properties" : {
+        "AllocationId"        : { "Ref" : "Nat2EipAllocationID"},
+        "SubnetId"            : { "Ref" : "PublicSubnet2"}
+      }
+    },
+ 
+    "PublicRoute": {
+      "Type"                  : "AWS::EC2::Route",
+      "DependsOn"             : "GatewayToInternet",
+      "Properties" : {
+        "RouteTableId"        : { "Ref": "PublicSubnetRouteTable" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId"           : { "Ref": "InternetGateway" }
+      }
+    },
+    
+    "NatPublicRoute1": {
+      "Type"                  : "AWS::EC2::Route",
+      "DependsOn"             : "GatewayToInternet",
+      "Properties" : {
+        "RouteTableId"        : { "Ref": "PrivateSubnetRouteTable1" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId"        : { "Ref": "Nat1" }
+      }
+    },
+    
+    "NatPublicRoute2": {
+      "Type"                  : "AWS::EC2::Route",
+      "DependsOn"             : "GatewayToInternet",
+      "Properties" : {
+        "RouteTableId"        : { "Ref": "PrivateSubnetRouteTable2" },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId"        : { "Ref": "Nat2" }
+      }
+    },
+
+    "RouteTableAssociationPublicSubnet1": {
+      "Type"                  : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId"        : { "Ref": "PublicSubnetRouteTable" },
+        "SubnetId"            : { "Ref": "PublicSubnet1" }
+      }
+    },
+    
+    "RouteTableAssociationPublicSubnet2": {
+      "Type"                  : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId"        : { "Ref": "PublicSubnetRouteTable" },
+        "SubnetId"            : { "Ref": "PublicSubnet2" }
+      }
+    },
+    
+    "RouteTableAssociationPrivateSubnet1": {
+      "Type"                  : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId"        : { "Ref": "PrivateSubnetRouteTable1" },
+        "SubnetId"            : { "Ref": "PrivateSubnet1" }
+      }
+    },
+    
+    "RouteTableAssociationPrivateSubnet2": {
+      "Type"                  : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId"        : { "Ref": "PrivateSubnetRouteTable2" },
+        "SubnetId"            : { "Ref": "PrivateSubnet2" }
+      }
+    }
+  },
+  
+  "Outputs": {
+    "VpcId": {
+      "Description"           : "VPC Id",
+      "Value"                 : { "Ref": "Vpc" }
+    },
+    
+    "PublicSubnet1": {
+      "Description"           : "PublicSubnet1 Id",
+      "Value"                 : { "Ref": "PublicSubnet1" }
+    },
+    
+    "PublicSubnet2": {
+      "Description"           : "PublicSubnet2 Id",
+      "Value"                 : { "Ref": "PublicSubnet2" }
+    },
+    
+    "PrivateSubnet1": {
+      "Description"           : "PrivateSubnet1 Id",
+      "Value"                 : { "Ref": "PrivateSubnet1" }
+    },
+    
+    "PrivateSubnet2": {
+      "Description"           : "PrivateSubnet2 Id",
+      "Value"                 : { "Ref": "PrivateSubnet2" }
+    },
+    
+    "NatPublicRouteTable1" : {
+      "Description"           : "NatPublicRoute1",
+      "Value"                 : { "Ref" : "PrivateSubnetRouteTable1" }
+    },
+    
+    "NatPublicRouteTable2" : {
+      "Description"          : "NatPublicRoute2",
+      "Value"                : { "Ref" : "PrivateSubnetRouteTable2" }
+    },
+    
+    "VpcCidr" : {
+      "Description"          : "VpcCidr",
+      "Value"                : { "Ref" : "VpcCidr" }
+    }
+  }
+ }

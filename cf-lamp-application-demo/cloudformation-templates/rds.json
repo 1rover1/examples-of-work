@@ -1,0 +1,313 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "RDS",
+  
+  "Parameters" : {
+    
+    "VpcId" : {
+      "Description"                        : "VPC to launch resources into",
+      "Type"                               : "AWS::EC2::VPC::Id"
+    },
+    
+    "PrivateSubnet1" : {
+      "Description"                        : "Private Subnet 1 Id",
+      "Type"                               : "AWS::EC2::Subnet::Id",
+      "Default"                            : "subnet-adf186c8"
+    },
+    
+    "PrivateSubnet2" : {
+      "Description"                        : "Private Subnet 1 Id",
+      "Type"                               : "AWS::EC2::Subnet::Id",
+      "Default"                            : "subnet-22831f55"
+    },
+    
+    "InstanceSecurityGroup" : {
+      "Description"                        : "Security group to apply to instances",
+      "Type"                               : "AWS::EC2::SecurityGroup::Id"
+    },
+    
+    "EnvironmentType" : {
+      "Type"                               : "String",
+      "Description"                        : "dev, test, staging, uat, demo, etc.",
+      "Default"                            : "demo"
+    },
+    
+    "MainRDSSnapshot" : {
+      "Type"                               : "String",
+      "Description"                        : "Data RDS snapshot ID to create new database from.  Leave blank to create an empty database.",
+      "Default"                            : "snaphot-name"
+    },
+
+   "LogRDSSnapshot" : {
+      "Type"                               : "String",
+      "Description"                        : "Log RDS snapshot ID to create new database from.  Leave blank to create an empty database.",
+      "Default"                            : "snaphot-name"
+    },
+
+    "TbridgeRDSSnapshot" : {
+      "Type"                               : "String",
+      "Description"                        : "Tbridge RDS snapshot ID to create new database from.  Leave blank to create an empty database.",
+      "Default"                            : "snaphot-name"
+    },
+
+    "SAUser" : {
+      "Type"                               : "String",
+      "Description"                        : "SA account name.  Leave blank if restoring from snapshot.",
+      "Default"                            : "dbsa"
+    },
+    
+    "SAPass" : {
+      "Type"                               : "String",
+      "Description"                        : "SA account password.  Leave blank if restoring from snapshot.",
+      "Default"                            : "PasswordRDS",
+      "NoEcho"                             : "true"
+    },
+    
+    "DBStorage" : {
+      "Type"                               : "String",
+      "Description"                        : "Amount of storage to allocate to DB in GB.  Leave blank if restoring from snapshot.",
+      "Default"                            : "512"
+    },
+    
+    "VpcCidr" : {
+      "Type"                               : "String",
+      "Description"                        : "VPC CIDR",
+      "Default"                            : ""
+    }
+  },
+  
+  "Mappings" : {
+    "InstanceType" : {
+      "dev"                     : { "Size" : "db.t2.medium", "MultiAZ": "false"  },
+      "test"                    : { "Size" : "db.m4.large", "MultiAZ": "false"  },
+      "staging"                 : { "Size" : "db.m4.xlarge", "MultiAZ": "false"  },
+      "uat"                     : { "Size" : "db.m4.xlarge", "MultiAZ": "false"  },
+      "uat-ct"                  : { "Size" : "db.m4.large", "MultiAZ": "false"  },
+      "demo"                    : { "Size" : "db.m4.large", "MultiAZ": "false" },
+      "production"              : { "Size" : "db.m4.xlarge", "MultiAZ": "true" }
+    },
+    
+    "LoggingInstanceType" : {
+      "dev"                     : { "Size" : "db.t2.medium", "MultiAZ": "false"  },
+      "test"                    : { "Size" : "db.t2.medium", "MultiAZ": "false"  },
+      "staging"                 : { "Size" : "db.t2.medium", "MultiAZ": "false"  },
+      "uat"                     : { "Size" : "db.t2.medium", "MultiAZ": "false"  },
+      "uat-ct"                  : { "Size" : "db.t2.medium", "MultiAZ": "false"  },
+      "demo"                    : { "Size" : "db.t2.medium", "MultiAZ": "false" },
+      "production"              : { "Size" : "db.m4.large", "MultiAZ": "true" }
+    }
+  },
+  
+  "Conditions" : {
+    "NoDataDBSnapshot"          : { "Fn::Equals": [ "" , { "Ref" : "MainRDSSnapshot" } ] },
+    "NoLogDBSnapshot"           : { "Fn::Equals": [ "" , { "Ref" : "LogRDSSnapshot" } ] },
+    "NoTbridgeDBSnapshot"       : { "Fn::Equals": [ "" , { "Ref" : "TbridgeRDSSnapshot" } ] },
+    "IsDemo"                    : { "Fn::Equals": [ "demo" , { "Ref" : "EnvironmentType" } ] }
+  },
+  
+  "Resources" : {
+  
+    "DBSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+         "GroupDescription"              : "Allow external access to ELB",
+         "VpcId"                         : {"Ref" : "VpcId" },
+         "SecurityGroupIngress" : [{
+           "IpProtocol"                  : "tcp",
+           "FromPort"                    : "3306",
+           "ToPort"                      : "3306",
+           "SourceSecurityGroupId"       : { "Ref" : "InstanceSecurityGroup" }
+         },{
+           "IpProtocol"                  : "tcp",
+           "FromPort"                    : "3306",
+           "ToPort"                      : "3306",
+           "CidrIp"                      : "192.168.0.0/16"
+         }]
+       }
+    },
+    
+    "DBSubnetGroup" : {
+      "Type"                             : "AWS::RDS::DBSubnetGroup",
+      "Properties" : {
+        "DBSubnetGroupDescription"       : "Private RDS subnet",
+        "SubnetIds"                      : [ { "Ref" : "PrivateSubnet1" }, { "Ref" : "PrivateSubnet2" } ]
+      }
+    },
+    
+    "MainRDSInstance" : {
+      "Type"                             : "AWS::RDS::DBInstance",
+      "Properties" : {
+        "Engine"                         : "MariaDB",
+        "PreferredBackupWindow"          : "15:00-15:30",
+        "PreferredMaintenanceWindow"     : "fri:17:00-fri:17:30",
+        "MultiAZ"                        : { "Fn::FindInMap" : [ "InstanceType", { "Ref" : "EnvironmentType" } , "MultiAZ" ] },
+        "StorageType"                    : "gp2",
+        "VPCSecurityGroups"              : [ { "Ref" : "DBSecurityGroup" } ],
+        "DBSubnetGroupName"              : { "Ref" : "DBSubnetGroup" },
+        "DBSnapshotIdentifier" : {
+          "Fn::If" : [
+            "NoDataDBSnapshot",
+            {"Ref" : "AWS::NoValue"},
+            {"Ref" : "MainRDSSnapshot"}
+          ]
+        },
+        "AllocatedStorage" : {
+          "Fn::If" : [
+            "NoDataDBSnapshot",
+            {"Ref" : "DBStorage"},
+            {"Ref" : "AWS::NoValue"}
+          ]
+        },
+        "MasterUsername" : {
+          "Fn::If" : [
+            "NoDataDBSnapshot",
+            {"Ref" : "SAUser"},
+            {"Ref" : "AWS::NoValue"}
+          ]
+        },
+        "MasterUserPassword" : {
+          "Fn::If" : [
+            "NoDataDBSnapshot",
+            {"Ref" : "SAPass"},
+            {"Ref" : "AWS::NoValue"}
+          ]
+        },
+        "DBInstanceClass" : { "Fn::FindInMap" : [ "InstanceType", { "Ref" : "EnvironmentType" } , "Size" ] }
+      }
+    },
+    
+    "LoggingRDSInstance" : {
+      "Type"                             : "AWS::RDS::DBInstance",
+      "Properties" : {
+        "Engine"                         : "MariaDB",
+        "PreferredBackupWindow"          : "15:00-15:30",
+        "PreferredMaintenanceWindow"     : "fri:17:00-fri:17:30",
+        "MultiAZ"                        : { "Fn::FindInMap" : [ "LoggingInstanceType", { "Ref" : "EnvironmentType" } , "MultiAZ" ] },
+        "StorageType"                    : "gp2",
+        "VPCSecurityGroups"              : [ { "Ref" : "DBSecurityGroup" } ],
+        "DBSubnetGroupName"              : { "Ref" : "DBSubnetGroup" },
+        "DBSnapshotIdentifier" : {
+          "Fn::If" : [
+            "NoLogDBSnapshot",
+            {"Ref" : "AWS::NoValue"},
+            {"Ref" : "LogRDSSnapshot"}
+          ]
+        },
+        "AllocatedStorage" : {
+          "Fn::If" : [
+            "NoLogDBSnapshot",
+            {"Ref" : "DBStorage"},
+            {"Ref" : "AWS::NoValue"}
+          ]
+        },
+        "MasterUsername" : {
+          "Fn::If" : [
+            "NoLogDBSnapshot",
+            {"Ref" : "SAUser"},
+            {"Ref" : "AWS::NoValue"}
+          ]
+        },
+        "MasterUserPassword" : {
+          "Fn::If" : [
+            "NoLogDBSnapshot",
+            {"Ref" : "SAPass"},
+            {"Ref" : "AWS::NoValue"}
+          ]
+        },
+        "DBInstanceClass" : { "Fn::FindInMap" : [ "LoggingInstanceType", { "Ref" : "EnvironmentType" } , "Size" ] }
+      }
+    },
+  
+  "TbridgeRDSInstance" : {
+    "Type"                             : "AWS::RDS::DBInstance",
+    "Properties" : {
+      "Engine"                         : "MariaDB",
+      "PreferredBackupWindow"          : "15:00-15:30",
+      "PreferredMaintenanceWindow"     : "fri:17:00-fri:17:30",
+      "MultiAZ"                        : { "Fn::FindInMap" : [ "LoggingInstanceType", { "Ref" : "EnvironmentType" } , "MultiAZ" ] },
+      "StorageType"                    : "gp2",
+      "VPCSecurityGroups"              : [ { "Ref" : "DBSecurityGroup" } ],
+      "DBSubnetGroupName"              : { "Ref" : "DBSubnetGroup" },
+      "DBSnapshotIdentifier" : {
+        "Fn::If" : [
+          "NoTbridgeDBSnapshot",
+          {"Ref" : "AWS::NoValue"},
+          {"Ref" : "TbridgeRDSSnapshot"}
+        ]
+      },
+      "AllocatedStorage" : {
+        "Fn::If" : [
+          "NoTbridgeDBSnapshot",
+          {"Ref" : "DBStorage"},
+          {"Ref" : "AWS::NoValue"}
+        ]
+      },
+      "MasterUsername" : {
+        "Fn::If" : [
+          "NoTbridgeDBSnapshot",
+          {"Ref" : "SAUser"},
+          {"Ref" : "AWS::NoValue"}
+        ]
+      },
+      "MasterUserPassword" : {
+        "Fn::If" : [
+          "NoTbridgeDBSnapshot",
+          {"Ref" : "SAPass"},
+          {"Ref" : "AWS::NoValue"}
+        ]
+      },
+      "DBInstanceClass" : { "Fn::FindInMap" : [ "LoggingInstanceType", { "Ref" : "EnvironmentType" } , "Size" ] }
+    }
+  }
+  
+},
+  
+  
+  "Outputs" : {
+    "MainRDSInstance" : {
+      "Description"          : "MainRDSInstance",
+      "Value"                : { "Ref" : "MainRDSInstance" }
+    },
+    
+    "MainRDSEndpoint" : {
+      "Description"          : "MainRDSEndpoint",
+      "Value"                : { "Fn::GetAtt" : [ "MainRDSInstance" , "Endpoint.Address" ] }
+    },
+    
+    "MainRDSEndpointPort" : {
+      "Description"          : "MainRDSEndpointPort",
+      "Value"                : { "Fn::GetAtt" : [ "MainRDSInstance" , "Endpoint.Port" ] }
+    },
+    
+    "LoggingRDSInstance" : {
+      "Description"          : "LoggingRDSInstance",
+      "Value"                : { "Ref" : "LoggingRDSInstance" }
+    },
+    
+    "LoggingRDSEndpoint" : {
+      "Description"          : "LoggingRDSEndpoint",
+      "Value"                : { "Fn::GetAtt" : [ "LoggingRDSInstance" , "Endpoint.Address" ] }
+    },
+    
+    "LoggingRDSEndpointPort" : {
+      "Description"          : "LoggingRDSEndpointPort",
+      "Value"                : { "Fn::GetAtt" : [ "LoggingRDSInstance" , "Endpoint.Port" ] }
+  },
+    
+    "TbridgeRDSInstance" : {
+      "Description"          : "TbridgeRDSInstance",
+      "Value"                : { "Ref" : "TbridgeRDSInstance" }
+    },
+    
+    "TbridgeRDSEndpoint" : {
+      "Description"          : "TbridgeRDSEndpoint",
+      "Value"                : { "Fn::GetAtt" : [ "TbridgeRDSInstance" , "Endpoint.Address" ] }
+    },
+    
+    "TbridgeRDSEndpointPort" : {
+      "Description"          : "TbridgeRDSEndpointPort",
+      "Value"                : { "Fn::GetAtt" : [ "TbridgeRDSInstance" , "Endpoint.Port" ] }
+    }
+  }
+}

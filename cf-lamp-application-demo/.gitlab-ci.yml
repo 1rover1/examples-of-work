@@ -1,0 +1,23 @@
+image: ubuntu:16.04
+
+stages:
+  - linting
+  - deploy
+  
+linter:
+  stage: linting
+  script:
+    - apt update -qq 
+    - apt install jsonlint shellcheck -y -qq > /dev/null
+    - ./linter.sh
+
+send_to_aws:
+  stage: deploy
+  script:
+    - echo "Configs $S3_BUCKET_CONFIGS, Templates $S3_BUCKET_TEMPLATES, Region $S3_REGION"
+    - apt update -qq 
+    - apt install awscli -y -qq > /dev/null
+    - aws s3 --region $S3_REGION sync cloudformation-templates s3://$S3_BUCKET_TEMPLATES/
+    - aws s3 --region $S3_REGION sync application-configs s3://$S3_BUCKET_CONFIGS/
+  only:
+    - master

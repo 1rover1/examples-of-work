@@ -1,0 +1,144 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "ElastiCache",
+  
+  "Parameters" : {
+    "VPC" : {
+      "Type"                     : "AWS::EC2::VPC::Id",
+      "Description"              : "VPC to launch memcache cluster into."
+    },
+    
+    "Subnet1" : {
+      "Type"                     : "AWS::EC2::Subnet::Id",
+      "Description"              : "Subnet used for high availability"
+    },
+    
+    "Subnet2" : {
+      "Type"                     : "AWS::EC2::Subnet::Id",
+      "Description"              : "Subnet used for high availability"
+    },
+    
+    "EnvironmentType" : {
+      "Type"                     : "String",
+      "Description"              : "dev, test, staging, uat, demo, etc.",
+      "Default"                  : "demo"
+    },
+    
+    "InstanceSG" : {
+      "Type"                     : "AWS::EC2::SecurityGroup::Id",
+      "Description"              : "Instance security group"
+    }
+  },
+  
+  "Mappings" : {
+    "InstanceType" : {
+      "dev"                      : { "Size" : "cache.t2.micro"  },
+      "test"                     : { "Size" : "cache.m3.medium"  },
+      "staging"                  : { "Size" : "cache.m3.medium" },
+      "uat"                      : { "Size" : "cache.m3.medium"  },
+      "uat-ct"                   : { "Size" : "cache.m3.medium"  },
+      "demo"                     : { "Size" : "cache.m3.medium" },
+      "production"               : { "Size" : "cache.m3.large" }
+    }
+  },
+  
+  "Conditions" : {
+    "DevEnvironment"  : { "Fn::Equals" : [ { "Ref" : "EnvironmentType" }, "dev" ] },
+    "TestEnvironment" : { "Fn::Equals" : [ { "Ref" : "EnvironmentType" }, "test" ] },
+    "DemoEnvironment" : { "Fn::Equals" : [ { "Ref" : "EnvironmentType" }, "demo" ] },
+    "ProdEnvironment" : { "Fn::Equals" : [ { "Ref" : "EnvironmentType" }, "production" ] },
+    "UATEnvironment"  : { "Fn::Equals" : [ { "Ref" : "EnvironmentType" }, "uat" ] },
+    "UATEnvironment"  : { "Fn::Equals" : [ { "Ref" : "EnvironmentType" }, "uat-ct" ] }
+  },
+
+  "Resources" : {
+    "ElastiCacheMemcached" : {
+      "Type"                      : "AWS::ElastiCache::CacheCluster",
+      "DependsOn"                 : "SecurityGroupMemcache",
+      "Properties" : {
+        "AutoMinorVersionUpgrade" : "true",
+        
+        "CacheNodeType"           : { "Fn::FindInMap" : [ "InstanceType", { "Ref" : "EnvironmentType" } , "Size" ] },
+        "Engine"                  : "memcached",
+        "NumCacheNodes"           : { "Fn::If" : [ "DevEnvironment", "1", "2" ] },
+        "VpcSecurityGroupIds"     : [ { "Fn::GetAtt": [ "SecurityGroupMemcache", "GroupId" ] } ],
+        "PreferredMaintenanceWindow"  : "sun:17:00-sun:18:00",
+        "CacheSubnetGroupName"    : { "Ref" : "SubnetGroup" }
+      }
+    },
+    
+    "ElastiCacheRedis" : {
+      "Type": "AWS::ElastiCache::ReplicationGroup",
+      "DependsOn"                     : "SecurityGroupRedis",
+      "Properties": {
+        "ReplicationGroupDescription" : { "Ref" : "AWS::StackName" },
+        "NumCacheClusters"            : { "Fn::If" : [ "DevEnvironment", "1", "2" ] },
+        "Engine"                      : "redis",
+        "CacheNodeType"               : { "Fn::FindInMap" : [ "InstanceType", { "Ref" : "EnvironmentType" } , "Size" ] },
+        "AutoMinorVersionUpgrade"     : "true",
+        "AutomaticFailoverEnabled"    : { "Fn::If" : [ "DevEnvironment", "false", "true" ] },
+        "CacheSubnetGroupName"        : { "Ref" : "SubnetGroup" },
+        "SecurityGroupIds"            : [ { "Fn::GetAtt": [ "SecurityGroupRedis", "GroupId" ] } ],
+        "PreferredMaintenanceWindow"  : "sun:17:00-sun:18:00",
+        "SnapshotRetentionLimit"      : { "Fn::If" : [ "DevEnvironment", "", "4" ] },
+        "SnapshotWindow"              : { "Fn::If" : [ "DevEnvironment", "", "14:15-15:15" ] }
+      }
+    },
+    
+    "SubnetGroup" : {
+      "Type" : "AWS::ElastiCache::SubnetGroup",
+      "Properties" : {
+        "Description"             : "ElastiCache subnet group",
+        "SubnetIds"               : [ { "Ref" : "Subnet1" }, { "Ref" : "Subnet2" } ]
+      }
+    },
+    
+    "SecurityGroupMemcache" : {
+      "Type"                      : "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId"                   : { "Ref" : "VPC" },
+        "GroupDescription"        : "Members of this group can connect to ElastiCache memcached",
+        "SecurityGroupIngress"    : [{
+          "IpProtocol"            : "tcp",
+          "FromPort"              : "11211",
+          "ToPort"                : "11211",
+          "SourceSecurityGroupId" : { "Ref" : "InstanceSG" }
+        }]
+      }
+    },
+    
+    "SecurityGroupRedis" : {
+      "Type"                      : "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId"                   : { "Ref" : "VPC" },
+        "GroupDescription"        : "Members of this group can connect to ElastiCache Redis",
+        "SecurityGroupIngress"    : [{
+          "IpProtocol"            : "tcp",
+          "FromPort"              : "6379",
+          "ToPort"                : "6379",
+          "SourceSecurityGroupId" : { "Ref" : "InstanceSG" }
+        }]
+      }
+    }
+  },
+  
+  "Outputs" : {
+    "MemcacheEndpoint" : {
+      "Description" : "Endpoint",
+      "Value" : { "Fn::GetAtt" : [ "ElastiCacheMemcached" , "ConfigurationEndpoint.Address" ] }
+    },
+
+    "MemcacheID" : {
+      "Description" : "Endpoint",
+      "Value" : { "Ref" : "ElastiCacheMemcached" }
+    },
+    
+    "RedisID" : {
+      "Description" : "Endpoint",
+      "Value" : { "Ref" : "ElastiCacheRedis" }
+    }
+  }
+}
+
+  

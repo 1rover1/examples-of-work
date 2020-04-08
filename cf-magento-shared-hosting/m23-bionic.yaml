@@ -1,0 +1,365 @@
+---
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must contain only alpha numeric characters and dashes."
+    Default: M23au
+
+  WildcardDomain:
+    Description: Wildcard domain name for the Magento share host site.
+    Type: String
+    Default: m23au.example.com
+
+  StackKeyName:
+    Description: Keypair name for the stack
+    Type: "AWS::EC2::KeyPair::KeyName"
+    ConstraintDescription: "must be the name of an existing EC2 KeyPair."
+
+  WebApp1InstanceType:
+    Description: InstanceType of Web App1
+    Type: String
+    Default: t2.small
+
+  WebApp1ImageId:
+    Description: ImageId(AMI) of Web App1
+    Type: "AWS::EC2::Image::Id"
+    # 16.04-LTS Xenial image long id (Must be HVM supported)
+    # aws --region ap-southeast-2 --output text ec2 describe-images --filters Name=name,Values=ubuntu/images/hvm-ssd/* --query 'Images[*].[ImageId,CreationDate,Name]'|sort -k2 -r|grep xenial|grep amd64|head -n3
+    #Default: ami-090e07f7fc8bcfc3a
+    # 18.04-LTS Bionic image long id (Must be HVM supported)
+    # aws --region ap-southeast-2 --output text ec2 describe-images --filters Name=name,Values=ubuntu/images/hvm-ssd/* --query 'Images[*].[ImageId,CreationDate,Name]'|sort -k2 -r|grep bionic|grep amd64|head -n3
+    Default: ami-0bbcf853aaf6ca4a6
+
+  Database1UserName:
+    Description: Master user name of the database instance to be created.
+    Type: String
+    Default: potatoes
+
+  Database1UserPassword:
+    Description: Master user password of the database instance to be created.
+    Type: String
+    NoEcho: true
+    Default: potatoes
+
+  YourIPAddress:
+    Description: Your office public IP address - used for locking down SSH access
+    Type: String
+    Default: 123.45.67.89
+
+Resources:
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.61.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} VPC
+
+  InternetGateway1:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Internet Gateway
+
+  InternetGatewayAttachment1:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway1
+      VpcId: !Ref VPC1
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: "10.61.11.0/24"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: "10.61.12.0/24"
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ2)
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Routes
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment1
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway1
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  WebAppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "webapp-sg"
+      GroupDescription: "Security group for WebApp"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: "0"
+          ToPort: "65535"
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Join [ "", [ !Ref YourIPAddress, "/32" ] ]
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} WebApp SecurityGroup
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "database-sg"
+      GroupDescription: "Security group for MySQL database"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebAppSecurityGroup
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} MySQL SecurityGroup
+
+  DBSubnetGroup1:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SubnetGroup for database cluster1
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} DBSubnetGroup1
+
+
+  DatabaseCluster1:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora
+      EngineVersion: 5.6.10a
+      MasterUsername: !Ref Database1UserName
+      MasterUserPassword: !Ref Database1UserPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup1
+      VpcSecurityGroupIds:
+        - Ref: DatabaseSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Database Cluster1
+    DeletionPolicy: Snapshot
+
+  Database1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: aurora
+      EngineVersion: 5.6.10a
+      DBClusterIdentifier: !Ref DatabaseCluster1
+      DBInstanceClass: db.t2.small
+      DBSubnetGroupName: !Ref DBSubnetGroup1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Database1
+
+  WebApp1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref WebApp1InstanceType
+      ImageId: !Ref WebApp1ImageId
+      BlockDeviceMappings: 
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+            VolumeSize: "60"
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -ex
+          cat >> /etc/profile <<EOF
+          export MYSQL_HOST=${DatabaseCluster1.Endpoint.Address}
+          export MYSQL_PWD=${Database1UserPassword}
+          export DBUSER=${Database1UserName}
+          export DOMAIN=${WildcardDomain}
+          if [ \$(whoami) = "siteuser" ]; then
+            echo "Please follow the instructions here to create your first magento site."
+            echo -e "\e[1mgit clone git@src.example.com:dev-ops/m2demo-scripts.git"
+            echo "cd m2demo-scripts && ./m2-site-install.sh firstsite 2.3-develop"
+            echo -e "\e[m"
+          fi
+          EOF
+          
+          cat >> /etc/m2-db.cnf <<EOF
+            [client]
+            host		= ${DatabaseCluster1.Endpoint.Address}
+            user		= ${Database1UserName}
+            password	= ${Database1UserPassword}
+            database	= 
+          EOF
+          chmod a+r /etc/m2-db.cnf
+          
+          # Install deps
+          apt-get update && \
+            apt-get upgrade && \
+            apt-get -y install awscli git vim jq curl unzip bzip2 php-gd php-xml php-curl php-intl php-mbstring php-zip php-mysql php-soap php-bcmath libapache2-mod-php git mysql-client
+          
+          # Configure Apache
+          sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+          cat >> /etc/apache2/sites-available/sandbox.conf <<EOF
+            <VirtualHost *:80 *:443>
+                ServerAdmin        itsupport@example.com
+                VirtualDocumentRoot    /var/www/html/m2/%1/magento2ce
+                ServerName        ${WildcardDomain}
+                ServerAlias        *.${WildcardDomain}
+
+                SetEnv APPLICATION_ENV    "development"
+
+                <Directory />
+                    AllowOverride    All
+                    Order        Allow,Deny
+                    Allow from    All
+                    Require        all granted
+                </Directory>
+
+                LogLevel    debug
+                LogFormat    "%V %h %l %u %t \"%r\" %s %b" vcommon
+                ErrorLog    /var/log/apache2/sandbox-error.log
+                CustomLog    /var/log/apache2/sandbox-access.log vcommon
+            </VirtualHost>
+          EOF
+          a2ensite sandbox.conf
+          a2enmod vhost_alias rewrite
+          /etc/init.d/apache2 restart
+          
+          # Add siteuser user
+          adduser --gid `id -g www-data` --disabled-password --gecos "" siteuser
+          cp -a /home/ubuntu/.ssh /home/siteuser/
+          chown -R siteuser:www-data /home/siteuser/.ssh
+          
+          # Install composer
+          wget https://getcomposer.org/composer.phar
+          mv composer.phar /home/siteuser/composer
+          chown siteuser:www-data /home/siteuser/composer
+          chmod 500 /home/siteuser/composer
+          
+          # Final Apache config
+          mkdir -p /var/www/html/m2
+          chown -R siteuser:www-data /var/www/html/m2
+          echo HelloWorld > /var/www/html/index.html
+      KeyName: !Ref StackKeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination : true
+          SubnetId: !Ref PublicSubnet1
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref WebAppSecurityGroup
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination : true
+          SubnetId: !Ref PublicSubnet2
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref WebAppSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} WebApp1 (AZ1)
+
+  TargetGroup1:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 4
+      Matcher:
+        HttpCode: '200'
+      Targets:
+        - Id:
+            Ref: WebApp1
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VPC1
+      Name: !Sub ${EnvironmentName}-TargetGroup1
+
+  LoadBalancer1:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref WebAppSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 120
+      Name: !Sub ${EnvironmentName}-WebApp-LoadBalancer1
+
+  LoadBalancerListener1:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn:
+            Ref: TargetGroup1
+      LoadBalancerArn:
+        Ref: LoadBalancer1
+      Port: 80
+      Protocol: HTTP
+
+
+Outputs:
+  WebApp1:
+    Description: Web Application1
+    Value: !Ref WebApp1

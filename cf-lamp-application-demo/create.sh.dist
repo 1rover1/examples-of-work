@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# config items
+PARENT_TEMPLATE_URL="https://s3-ap-southeast-2.amazonaws.com/joel-apac-templates/parent.json"
+AWS_CLI_PROFILE="--profile joelsdev"
+STACK_NAME="apac1-uat"
+
+TEMPFILE=$( mktemp )
+cat > $TEMPFILE <<- EOM
+[
+  {"ParameterKey": "AlertsEmail",                 "ParameterValue": ""},
+  {"ParameterKey": "AppDBReadAccessPass",         "ParameterValue": ""},
+  {"ParameterKey": "AppDBReadAccessUser",         "ParameterValue": ""},
+  {"ParameterKey": "AppDBWriteAccessPass",        "ParameterValue": ""},
+  {"ParameterKey": "AppDBWriteAccessUser",        "ParameterValue": ""},
+  {"ParameterKey": "Base12amiid",                 "ParameterValue": "ami-b87e6ddb"},
+  {"ParameterKey": "Base14amiid",                 "ParameterValue": "ami-28f4384a"},
+  {"ParameterKey": "DBStorage",                   "ParameterValue": ""},
+  {"ParameterKey": "Domain",                      "ParameterValue": ""},
+  {"ParameterKey": "EnvironmentType",             "ParameterValue": ""},
+  {"ParameterKey": "KeyName",                     "ParameterValue": ""},
+  {"ParameterKey": "LogRDSSnapshot",              "ParameterValue": "arn:aws:rds:ap-southeast-2:979145081662:snapshot:apac-logging"},
+  {"ParameterKey": "TbridgeRDSSnapshot",          "ParameterValue": "arn:aws:rds:ap-southeast-2:979145081662:snapshot:apac-tbridge"},
+  {"ParameterKey": "MainRDSSnapshot",             "ParameterValue": "arn:aws:rds:ap-southeast-2:979145081662:snapshot:apac-main"},
+  {"ParameterKey": "Nat1EipAllocationID",         "ParameterValue": ""},
+  {"ParameterKey": "Nat2EipAllocationID",         "ParameterValue": ""},
+  {"ParameterKey": "S3Bucket",                    "ParameterValue": ""},
+  {"ParameterKey": "SAPass",                      "ParameterValue": ""},
+  {"ParameterKey": "SAUser",                      "ParameterValue": ""},
+  {"ParameterKey": "SSLArn",                      "ParameterValue": ""},
+  {"ParameterKey": "VpcCidrPrefix",               "ParameterValue": ""}
+]
+EOM
+
+aws cloudformation $AWS_CLI_PROFILE create-stack \
+   --capabilities CAPABILITY_NAMED_IAM \
+   --stack-name $STACK_NAME \
+   --template-url $PARENT_TEMPLATE_URL \
+   --parameters file://$TEMPFILE

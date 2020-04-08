@@ -1,0 +1,56 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "GlobalVariables",
+  
+  "Parameters" : {
+    
+    "VpcId" : {
+      "Description"                      : "VPC to launch resources into",
+      "Type"                             : "AWS::EC2::VPC::Id"
+    },
+    
+    "AlertsEmail" : {
+      "Type"                             : "String",
+      "Description"                      : "Email to send SNS alerts to",
+      "Default"                          : "alerts@example.com"
+    }
+  },
+  
+  "Resources" : {
+  
+    "EmailAlertTopic" : {
+        "Type" : "AWS::SNS::Topic",
+        "Properties" : {
+            "Subscription" : [ {
+                "Endpoint" : { "Ref" : "AlertsEmail" },
+                "Protocol" : "email"
+            } ]
+        }
+    },
+  
+    "InstanceSG" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Generic group for all app servers",
+        "VpcId" : { "Ref" : "VpcId" }
+      }
+    }
+  },
+  
+  "Outputs" : {
+    "InstanceSG" : {
+      "Description"          : "InstanceSG",
+      "Value"                : { "Ref" : "InstanceSG" }
+    },
+    
+    "SNSTopic" : {
+      "Description"          : "SNS topic for alerts",
+      "Value"                : { "Fn::Join": [ "", [
+        "arn:aws:sns:" , { "Ref" : "AWS::Region" }, ":",
+        { "Ref" : "AWS::AccountId" }, ":",
+        { "Fn::GetAtt" : [ "EmailAlertTopic", "TopicName" ] } ] ]
+      }
+    }
+  }
+}

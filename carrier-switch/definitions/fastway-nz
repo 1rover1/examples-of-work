@@ -1,0 +1,5 @@
+SELECT GROUP_CONCAT(ca.ID)
+FROM CARRIER c JOIN CARRIER_ACCOUNT ca ON (ca.`S_ID` = c.`ID`)
+  JOIN CARRIER_GROUP cg ON (cg.CARRIER_ID = c.ID)
+WHERE ca.`LOCKED` = 'N' AND cg.`GROUP` = 'fastway.newzealand'
+;

@@ -1,0 +1,798 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "WebApp",
+  
+  "Parameters" : {
+
+    "Base14amiid" : {
+      "Description"                      : "Base image ID",
+      "Type"                             : "String",
+      "Default"                          : "ami-28f4384a"
+    },
+
+    "Base12amiid" : {
+      "Description"                      : "Base image ID",
+      "Type"                             : "String",
+      "Default"                          : ""
+    },
+
+    "KeyName": {
+      "Description"                      : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type"                             : "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription"            : "must be the name of an existing EC2 KeyPair."
+    },
+    
+    "PrivateSubnet1" : {
+      "Description"                      : "Private subnet to launch instance into",
+      "Type"                             : "AWS::EC2::Subnet::Id"
+    },
+
+    "PrivateSubnet2" : {
+      "Description"                      : "Private subnet to launch instance into",
+      "Type"                             : "AWS::EC2::Subnet::Id"
+    },
+    
+    "PublicSubnet1" : {
+      "Description"                      : "Public subnet for load balancers",
+      "Type"                             : "AWS::EC2::Subnet::Id"
+    },
+
+    "PublicSubnet2" : {
+      "Description"                      : "Public subnet for load balancers",
+      "Type"                             : "AWS::EC2::Subnet::Id"
+    },
+    
+    "FileSystem" : {
+      "Description"                      : "Hostname for AWS-provided network file system",
+      "Type"                             : "String"
+    },
+    
+    "EnvironmentType" : {
+      "Type"                             : "String",
+      "Description"                      : "dev, test, staging, uat, demo, etc.",
+      "Default"                          : "demo"
+    },
+    
+    "S3Bucket" : {
+      "Description"                      : "Bucket Containing application config files",
+      "Type"                             : "String",
+      "Default"                          : "cf-configs-apac",
+      "AllowedPattern"                   : "[a-zA-Z0-9-]+",
+      "ConstraintDescription"            : "must contain only alpha numeric characters and dashes."
+    },
+    
+    "S3Prefix" : {
+      "Description"                      : "Folder inside bucket containing application config files",
+      "Default"                          : "my",
+      "Type"                             : "String",
+      "AllowedPattern"                   : "[a-zA-Z0-9-]+",
+      "ConstraintDescription"            : "must contain only alpha numeric characters and dashes."
+    },
+    
+    "Domain" : {
+      "Description"                      : "Domain name, e.g. example.co.uk, example.fr, etc",
+      "Type"                             : "String"
+    },
+
+    "VPC" : {
+      "Description"                      : "VPC to launch resources into",
+      "Type"                             : "AWS::EC2::VPC::Id"
+    },
+    
+    "InstanceSecurityGroup" : {
+      "Description"                      : "Security group to apply to instances",
+      "Type"                             : "AWS::EC2::SecurityGroup::Id"
+    },
+    
+    "SSLArn" : {
+      "Description"                      : "SSL ARN",
+      "Type"                             : "String",
+      "Default"                          : "arn:aws:iam::255273130232:server-certificate/star.example.fr16-a"
+    },
+   
+    "Database" : {
+      "Description"                      : "Database host",
+      "Type"                             : "String",
+      "Default"                          : ""
+    },
+    
+    "TbridgeDatabase" : {
+      "Description"                      : "TBRIDGE Database host",
+      "Type"                             : "String",
+      "Default"                          : ""
+    },
+    
+    "LogDatabase" : {
+      "Description"                      : "Logging database host",
+      "Type"                             : "String",
+      "Default"                          : ""
+    },
+    
+    "Elasticache" : {
+      "Description"                      : "Elasticache host",
+      "Type"                             : "String",
+      "Default"                          : ""
+    },
+    
+    "DBUser" : {
+      "Type"                             : "String",
+      "Description"                      : "SA account name.  If restoring from snapshot, enter credentials for snapshot.",
+      "Default"                          : "dbsa"
+    },
+    
+    "DBPass" : {
+      "Type"                             : "String",
+      "Description"                      : "SA account password.  If restoring from snapshot, enter credentials for snapshot.",
+      "Default"                          : "PasswordRDS",
+      "NoEcho"                           : "true"
+    },
+   
+    "MemcacheID" : {
+      "Type"                             : "String",
+      "Description"                      : "Memcache ID",
+      "Default"                          : ""
+    },
+ 
+    "RedisID" : {
+      "Type"                             : "String",
+      "Description"                      : "Redis ID",
+      "Default"                          : ""
+    },
+    
+    "VpcCidr" : {
+      "Type"                             : "String",
+      "Description"                      : "VPC CIDR",
+      "Default"                          : ""
+    },
+    
+    "EmailAlertTopic" : {
+      "Type"                             : "String",
+      "Description"                      : "ARN of existing SNS topic"
+    }
+    
+  },
+ 
+ "Mappings" : {
+    "InstanceType" : {
+      "dev"                     : { "Size" : "t2.micro"  },
+      "test"                    : { "Size" : "t2.medium"  },
+      "staging"                 : { "Size" : "t2.medium"  },
+      "uat"                     : { "Size" : "t2.medium"  },
+      "uat-ct"                  : { "Size" : "t2.medium"  },
+      "demo"                    : { "Size" : "t2.medium" },
+      "production"              : { "Size" : "c4.large" }
+    }
+  },
+ 
+  "Conditions" : {
+    "IsProduction" : {
+      "Fn::Equals": [ { "Ref" : "EnvironmentType" }, "production" ]
+    },
+    "IsInternalService" : {
+     "Fn::Or" : [
+      { "Fn::Equals": [ { "Ref" : "S3Prefix" }, "tracking-service" ] },
+      { "Fn::Equals": [ { "Ref" : "S3Prefix" }, "xps" ] }
+     ]
+    },
+    "NoELB" : {
+     "Fn::Or" : [
+      { "Fn::Equals": [ { "Ref" : "S3Prefix" }, "jobs" ] },
+      { "Fn::Equals": [ { "Ref" : "S3Prefix" }, "mgt" ] }
+     ]
+    },
+    "NotInternalService" : {
+      "Fn::Not" : [ { "Condition" : "IsInternalService" } ]
+    },
+    "RegularELB" : {
+      "Condition" : "NotInternalService"  
+    },
+    "IsBase12" : {
+      "Fn::Not" : [{"Fn::Equals" : [{ "Ref" : "Base12amiid" }, ""]}]
+    }
+  }, 
+  
+  "Resources" : {
+  
+    "ASG" : {
+      "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "Properties" : {
+        "VPCZoneIdentifier"             : [ { "Ref" : "PrivateSubnet1" }, { "Ref" : "PrivateSubnet2" } ],
+        "LaunchConfigurationName"       : { "Ref" : "LaunchConfig" },
+        "LoadBalancerNames"             : [ { "Fn::If": [ "IsInternalService", { "Ref" : "IntELB" }, { "Ref" : "ELB" } ] } ],
+        "MinSize"                       : { "Fn::If" : [ "IsProduction", "2", "1" ] },
+        "MaxSize"                       : { "Fn::If" : [ "IsProduction", "5", "2" ] },
+        "DesiredCapacity"               : { "Fn::If" : [ "IsProduction", "2", "1" ] },
+        "HealthCheckGracePeriod"        : "300",
+        "HealthCheckType"               : "ELB",
+        "TerminationPolicies"           : [ "OldestInstance" ]
+      },
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService"       : "1",
+          "MaxBatchSize"                : "1",
+          "PauseTime"                   : "PT15M",
+          "WaitOnResourceSignals"       : "true"
+        }
+      }
+    },
+    
+    "ScalingPolicyUp" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "DependsOn" : [ "ASG" ],
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "Cooldown" : "300",
+        "AutoScalingGroupName" : { "Ref" : "ASG" },
+        "ScalingAdjustment" : "1"
+      }
+    },
+    
+    "ScalingPolicyDown" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "DependsOn" : [ "ASG" ],
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "Cooldown" : "300",
+        "AutoScalingGroupName" : { "Ref" : "ASG" },
+        "ScalingAdjustment" : "-1"
+      }
+    },
+    
+    "CPUAlarmHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "DependsOn" : [ "ASG", "ScalingPolicyUp" ],
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "80",
+        "AlarmDescription": "Alarm if CPU too high or metric disappears indicating instance is down",
+        "Period": "300",
+        "AlarmActions": [ { "Ref": "ScalingPolicyUp" }, {"Ref" : "EmailAlertTopic" } ],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [ {
+           "Name": "AutoScalingGroupName",
+           "Value": { "Ref": "ASG" }
+        } ],
+        "ComparisonOperator": "GreaterThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+    
+    "CPUAlarmLow": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "DependsOn" : [ "ASG", "ScalingPolicyDown" ],
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "30",
+        "AlarmDescription": "Alarm if CPU too high or metric disappears indicating instance is down",
+        "Period": "1800",
+        "AlarmActions": [ { "Ref": "ScalingPolicyDown" } ],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [ {
+           "Name": "AutoScalingGroupName",
+           "Value": { "Ref": "ASG" }
+        } ],
+        "ComparisonOperator": "LessThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+    
+    "DiskUtilizationHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "DependsOn" : [ "ASG", "ScalingPolicyUp" ],
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "90",
+        "AlarmDescription": "Alarm if disk utilization is too high",
+        "Period": "300",
+        "AlarmActions": [ {"Ref" : "EmailAlertTopic" } ],
+        "Namespace": "System/Linux",
+        "Dimensions": [ {
+           "Name": "AutoScalingGroupName",
+           "Value": { "Ref": "ASG" }
+        } ],
+        "ComparisonOperator": "GreaterThanThreshold",
+        "MetricName": "DiskSpaceUtilization"
+      }
+    },
+    
+    
+    "ELBSecurityGroup" : {
+      "Type"                            : "AWS::EC2::SecurityGroup",
+       "Properties" : {
+        "GroupDescription"              : "Allow external access to ELB",
+        "VpcId"                         : {"Ref" : "VPC" },
+        "SecurityGroupIngress" : [{
+          "IpProtocol"                  : "tcp",
+          "FromPort"                    : "80",
+          "ToPort"                      : "80",
+          "CidrIp"                      : "0.0.0.0/0"
+        }, {
+          "IpProtocol"                  : "tcp",
+          "FromPort"                    : "443",
+          "ToPort"                      : "443",
+          "CidrIp"                      : "0.0.0.0/0"
+        }]
+     }
+    },
+
+    "IntELBSecurityGroup" : {
+      "Type"                            : "AWS::EC2::SecurityGroup",
+      "Condition"                       : "IsInternalService",
+       "Properties" : {
+        "GroupDescription"              : "Allow Internal access to ELB",
+        "VpcId"                         : {"Ref" : "VPC" },
+        "SecurityGroupIngress" : [{
+          "IpProtocol"                  : "tcp",
+          "FromPort"                    : "9000",
+          "ToPort"                      : "9000",
+          "CidrIp"                      : "0.0.0.0/0"
+        }, {
+          "IpProtocol"                  : "tcp",
+          "FromPort"                    : "80",
+          "ToPort"                      : "80",
+          "CidrIp"                      : "0.0.0.0/0"
+        }, {
+          "IpProtocol"                  : "tcp",
+          "FromPort"                    : "443",
+          "ToPort"                      : "443",
+          "CidrIp"                      : "0.0.0.0/0"
+        }]
+     }
+    },
+   
+    "ELBSG" : {
+      "Type"                            : "AWS::EC2::SecurityGroup",
+      "DependsOn"                       : [ "ELBSecurityGroup" ],
+       "Properties" : {
+         "GroupDescription"              : "Allow external access to ELB",
+         "VpcId"                         : {"Ref" : "VPC" },
+         "SecurityGroupIngress" : [{
+           "IpProtocol"                  : "tcp",
+           "FromPort"                    : "80",
+           "ToPort"                      : "80",
+           "SourceSecurityGroupId"       : { "Ref" : "ELBSecurityGroup" }
+         },
+         {
+           "IpProtocol"                  : "-1",
+           "FromPort"                    : "-1",
+           "ToPort"                      : "-1",
+           "CidrIp"                      : { "Ref" : "VpcCidr" }
+         }]
+       }
+    },
+
+    "ELB" : {
+      "Type"                            : "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Condition"                       : "RegularELB",
+      "Properties" : {
+        "CrossZone"                     : "True",
+        "Subnets"                       : [ { "Ref" : "PublicSubnet1" }, { "Ref" : "PublicSubnet2" } ],
+        "SecurityGroups"                : [ { "Ref" : "ELBSecurityGroup" } ],
+        "Listeners" : [ {
+          "LoadBalancerPort"            : "80",
+          "InstancePort"                : "80",
+          "Protocol"                    : "HTTP"
+        }, {
+          "LoadBalancerPort"            : "443",
+          "InstancePort"                : "80",
+          "Protocol"                    : "HTTPS",
+          "SSLCertificateId"            : { "Ref" : "SSLArn" }
+        } ],
+        "HealthCheck": {
+          "Target"                      : "HTTP:80/check.php",
+          "Timeout"                     : 5,
+          "HealthyThreshold"            : 3,
+          "UnhealthyThreshold"          : 2,
+          "Interval"                    : 15
+        }
+      }
+    },
+
+    "IntELB" : {
+      "Type"                            : "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Condition"                       : "IsInternalService",
+      "Properties" : {
+        "CrossZone"                     : "True",
+        "Subnets"                       : [ { "Ref" : "PublicSubnet1" }, { "Ref" : "PublicSubnet2" } ],
+        "SecurityGroups"                : [ { "Ref" : "IntELBSecurityGroup" } ],
+        "Scheme"                        : "internal",
+        "Listeners" : [ {
+          "LoadBalancerPort"            : "80",
+          "InstancePort"                : "80",
+          "Protocol"                    : "HTTP"
+        }, {
+          "LoadBalancerPort"            : "9000",
+          "InstancePort"                : "9000",
+          "Protocol"                    : "HTTP"
+        }, {
+          "LoadBalancerPort"            : "443",
+          "InstancePort"                : "80",
+          "Protocol"                    : "HTTPS",
+          "SSLCertificateId"            : { "Ref" : "SSLArn" }
+        } ],
+        "HealthCheck" : {
+          "Target"                      : "HTTP:9000/health",
+          "Timeout"                     : 5,
+          "HealthyThreshold"            : 3,
+          "UnhealthyThreshold"          : 2,
+          "Interval"                    : 15
+        }
+      }
+    },
+ 
+    "LaunchConfig" : {
+      "Type" : "AWS::AutoScaling::LaunchConfiguration",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "instance_setup" : ["install_cfn", "install_software", "configure_instance" ]
+          },
+          "install_cfn" : {
+          
+            "files": {
+              "/etc/cfn/cfn-hup.conf": {
+                "content": { "Fn::Join": [ "", [
+                  "[main]\n",
+                  "stack=", { "Ref": "AWS::StackId" }, "\n",
+                  "region=", { "Ref": "AWS::Region" }, "\n"
+                ]]},
+                "mode"  : "000400",
+                "owner" : "root",
+                "group" : "root"
+              },
+              
+              "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                "content": { "Fn::Join": [ "", [
+                  "[cfn-auto-reloader-hook]\n",
+                  "triggers=post.update\n",
+
+                  "path=Resources.WebServer.Metadata.AWS::CloudFormation::Init\n",
+                  "action=/usr/local/bin/cfn-init -v ",
+                          "         --stack ", { "Ref" : "AWS::StackName" },
+                          "         --resource LaunchConfig ",
+                          "         --configsets instance_setup ",
+                          "         --region ", { "Ref" : "AWS::Region" }, "\n"
+                ]]},
+                "mode"  : "000400",
+                "owner" : "root",
+                "group" : "root"
+              },
+
+              "/opt/cloudwatch-logs.conf": {
+                "content": { "Fn::Join": [ "", [
+                  "[general]\n",
+                  "state_file = /var/awslogs/state/agent-state\n",
+
+                  "[/var/log/syslog]\n",
+                  "file = /var/log/syslog\n",
+                  "log_group_name = /var/log/syslog\n",
+                  "log_stream_name = {instance_id}\n",
+                  "datetime_format = %b %d %H:%M:%S\n",
+
+                  "[/var/log/apache2/error_log]\n",
+                  "file = /var/log/apache2/error_log\n",
+                  "log_group_name = /var/log/apache2/error_log\n",
+                  "log_stream_name = {instance_id}\n",
+                  "datetime_format = %b %d %H:%M:%S\n",
+
+                  "[/var/log/apache2/access_log]\n",
+                  "file = /var/log/apache2/access_log\n",
+                  "log_group_name = /var/log/apache2/access_log\n",
+                  "log_stream_name = {instance_id}\n",
+                  "datetime_format = %b %d %H:%M:%S\n",
+
+                  "[/var/log/auth.log]\n",
+                  "file = /var/log/auth.log\n",
+                  "log_group_name = /var/log/auth.log\n",
+                  "log_stream_name = {instance_id}\n",
+                  "datetime_format = %b %d %H:%M:%S\n",
+
+                  "[/home/siteuser/logs/api.log]\n",
+                  "file = /home/siteuser/logs/api.log\n",
+                  "log_group_name = /home/siteuser/logs/api.log\n",
+                  "log_stream_name = {instance_id}\n",
+                  "datetime_format = %b %d %H:%M:%S\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              },
+
+              "/etc/cron.d/cwpump": {
+                "content": { "Fn::Join": [ "", [
+                  "*/5 * * * * root /usr/bin/perl /opt/cloudwatch/aws-scripts-mon/mon-put-instance-data.pl --auto-scaling --mem-util --disk-space-util --disk-path=/ > /dev/null 2>&1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            },
+
+            "services" : {
+              "sysvinit" : {
+                "cfn-hup" : {
+                  "enabled"       : "true",
+                  "ensureRunning" : "true",
+                  "files"         : ["/etc/cfn/cfn-hup.conf", "/etc/cfn/hooks.d/cfn-auto-reloader.conf"]
+                }
+              }
+            }
+          },
+
+          "install_software" : {
+            "packages" : {
+                "apt" : {
+                  "Fn::If" : [
+                    "IsBase12", {
+                    },
+                    {
+                        "libdatetime-perl"       : [],
+                        "libsys-syslog-perl"     : [],
+                        "liblwp-protocol-https-perl": [],
+                        "libswitch-perl"         : [],
+                        "liburi-perl"            : [],
+                        "libwww-perl"            : [],
+                        "apache2"                : [],
+                        "php5-cli"               : [],
+                        "php5-common"            : [],
+                        "php5"                   : [],
+                        "php5-curl"              : [],
+                        "php5-dev"               : [],
+                        "php5-gd"                : [],
+                        "php5-imagick"           : [],
+                        "php5-intl"              : [],
+                        "php5-json"              : [],
+                        "php5-mcrypt"            : [],
+                        "php5-memcache"          : [],
+                        "php5-memcached"         : [],
+                        "php5-mysql"             : [],
+                        "php5-readline"          : [],
+                        "php5-redis"             : [],
+                        "telnet"                 : [],
+                        "memcached"              : [],
+                        "git"                    : [],
+                        "postfix"                : []
+                    }
+                ]}
+              },
+
+            "files" : {
+              
+              "/etc/apache2/sites-enabled/000-default.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  "<VirtualHost *:80>\n",
+                  "  ServerName localhost\n",
+                  "  ServerAlias *.example.com\n",
+                  "  DocumentRoot \"/home/siteuser/api.example.com/htdocs\"\n",
+                  "  SetEnvIf x-forwarded-proto https HTTPS=on\n",
+                  "  <Directory \"/home/siteuser/api.example.com/htdocs\">\n",
+                  "    AllowOverride All\n",
+                  "    # Apache 2.4\n",
+                  "    <IfModule mod_authz_core.c>\n",
+                  "      Require all granted\n",
+                  "    </IfModule>\n",
+                  "  </Directory>\n",
+                  "  <Directory \"/\">\n",
+                  "    AllowOverride All\n",
+                  "    # Apache 2.4\n",
+                  "    <IfModule mod_authz_core.c>\n",
+                  "      Require all granted\n",
+                  "    </IfModule>\n",
+                  "  </Directory>\n",
+                  "  <Location /server-status>\n",
+                  "    SetHandler server-status\n",
+                  "    Order deny,allow\n",
+                  "    Deny from all\n",
+                  "    Allow from localhost\n",
+                  "  </Location>\n",
+                  "  <FilesMatch \"soapServer\\.html$\">\n",
+                  "    ForceType application/x-httpd-php\n",
+                  "  </FilesMatch>\n",
+                  "</VirtualHost>\n",
+                  "ExtendedStatus On\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "www-data",
+                "group" : "www-data"
+              },
+              
+              "/root/bootstrap-config.sh": {
+                "content" : { "Fn::Join" : ["", [
+                  "#!/bin/bash\n",
+                  "export BUCKET_NAME=\"",      { "Ref" : "S3Bucket" }, "\"\n",
+                  "export APPLICATION_TYPE=\"", { "Ref" : "S3Prefix" }, "\"\n",
+                  "export APPLICATION_ENV=\"",  { "Ref" : "EnvironmentType" }, "\"\n",
+                  "export DOMAIN=\"",           { "Ref" : "Domain" }, "\"\n",
+                  "export ELASTICACHE=\"",      { "Ref" : "Elasticache" }, "\"\n",
+                  "export DATABASE=\"",         { "Ref" : "Database" }, "\"\n",
+                  "export TBRIDGEDB=\"",        { "Ref" : "TbridgeDatabase" }, "\"\n",
+                  "export DBUSER=\"",           { "Ref" : "DBUser" }, "\"\n",
+                  "export DBPASS=\"",           { "Ref" : "DBPass" }, "\"\n",
+                  "export MEMCACHEID=\"",       { "Ref" : "MemcacheID" }, "\"\n",
+                  "export REDISID=\"",          { "Ref" : "RedisID" }, "\"\n",
+                  "export LOGDB=\"",            { "Ref" : "LogDatabase" }, "\"\n",
+                  "export NET_FILE_SYSTEM=\"",  { "Ref" : "FileSystem" }, "\"\n",
+                  "export LBNAME=\"",           {
+                    "Fn::If": [ "IsInternalService", { "Fn::GetAtt" : [ "IntELB", "DNSName" ] },
+                      { "Fn::GetAtt" : [ "ELB", "DNSName" ] } ] }, "\"\n"
+                ] ] }
+            }
+            
+          }
+        },
+          
+          "configure_instance" : {
+            "commands" : {
+              "01_command" : {
+                "ignoreErrors" : "True",
+                "command" : { "Fn::Join" : ["", [
+                  "ID=`curl http://169.254.169.254/latest/meta-data/instance-id`\n",
+                  "aws ec2 create-tags --region ", { "Ref" : "AWS::Region" }, " --resources $ID --tags 'Key=Name,Value=\"",
+                  { "Ref" : "AWS::StackName" }, "-", { "Ref" : "EnvironmentType" }, "-", { "Ref" : "S3Prefix" }, "\"'\n",
+                  
+                  "aws s3 --region ", { "Ref" : "AWS::Region" }, " cp s3://", { "Ref" : "S3Bucket" }, "/bootstrap.sh /root/bootstrap.sh\n",
+                  "chmod +x /root/bootstrap.sh\n",
+                  "bash -c /root/bootstrap.sh\n",
+                  ""
+                ] ] }
+              }
+            },
+ 
+            "services" : {
+              "sysvinit" : {
+                "cfn-hup" : {
+                  "enabled"       : "true",
+                  "ensureRunning" : "true",
+                  "files"         : ["/etc/cfn/cfn-hup.conf", "/etc/cfn/hooks.d/cfn-auto-reloader.conf"]
+                },
+                "apache2"  : {
+                  "enabled"       : "true",
+                  "ensureRunning" : "true"
+                },
+
+                "memcached" : {
+                  "enabled"       : "true",
+                  "ensureRunning" : "true"
+                },
+
+                "postfix" : {
+                  "enabled"       : "true",
+                  "ensureRunning" : "true"
+                }
+              }
+            }
+          }
+         }
+       },
+      
+      "Properties" : {
+        "ImageId": {
+          "Fn::If" : ["IsBase12", {"Ref": "Base12amiid"}, {"Ref": "Base14amiid"}]
+        },
+        "IamInstanceProfile"       : { "Ref" : "InstanceProfile" },
+        "AssociatePublicIpAddress" : "false",
+        "InstanceType"             : { "Fn::FindInMap" : [ "InstanceType", { "Ref" : "EnvironmentType" } , "Size" ] },
+        
+        "SecurityGroups"           : [ {"Ref" : "InstanceSecurityGroup"}, { "Ref" : "ELBSG" } ],
+        "KeyName"                  : { "Ref" : "KeyName" },
+        "UserData"                 : { "Fn::Base64" : { "Fn::Join" : ["", [
+                                    "#!/bin/bash -xe\n",
+                                    "apt-get update\n",
+                                    "apt-get -y install python-pip\n",
+                                    "pip install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n",
+                                    "cp /usr/local/init/ubuntu/cfn-hup /etc/init.d/cfn-hup \n",
+                                    "chmod +x /etc/init.d/cfn-hup \n",
+                                    "update-rc.d cfn-hup defaults \n ",
+                                    "service cfn-hup start \n",
+ 
+                                     "/usr/local/bin/cfn-init -v ",
+                                     "         --stack ", { "Ref" : "AWS::StackName" },
+                                     "         --resource LaunchConfig ",
+                                     "         --configsets instance_setup ",
+                                     "         --region ", { "Ref" : "AWS::Region" }, "\n",
+
+                                     "/usr/local/bin/cfn-signal -e $? ",
+                                     "         --stack ", { "Ref" : "AWS::StackName" },
+                                     "         --resource ASG ",
+                                     "         --region ", { "Ref" : "AWS::Region" }, "\n"
+        ]]}}
+      }
+    },
+    
+    "InstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [ {
+          "Ref": "InstanceRole"
+        } ]
+      }
+    },
+    
+    "InstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version" : "2012-10-17",
+          "Statement": [ {
+            "Effect": "Allow",
+            "Principal": {
+              "Service": [ "ec2.amazonaws.com", "autoscaling.amazonaws.com" ]
+            },
+            "Action": [ "sts:AssumeRole" ]
+          } ]
+        },
+        "Path": "/",
+        "Policies": [ {
+          "PolicyName": "Allow-S3-and-CloudWatch-Access",
+          "PolicyDocument": {
+            "Version" : "2012-10-17",
+            "Statement": [ {
+              "Effect" : "Allow",
+              "Action" : [
+                "s3:ListMultipartUploadParts",
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:AbortMultipartUpload"
+               ],
+              "Resource" : { "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "S3Bucket" }, "/*"  ] ] }
+            }, {
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+                "s3:PutBucketVersioning"
+              ],
+              "Resource": { "Fn::Join" : ["", [ "arn:aws:s3:::", { "Ref" : "S3Bucket" } ] ] }
+            }, {
+              "Effect": "Allow",
+              "Action": [
+                "cloudwatch:PutMetricData",
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogStreams"
+              ],
+              "Resource": "*"
+            }, {
+                "Effect": "Allow",
+                "Action": [
+                  "elasticache:DescribeReplicationGroups",
+                  "elasticache:DescribeCacheClusters"
+                ],
+                "Resource": "*"
+                }, {
+                  "Effect": "Allow",
+                  "Action": [
+                      "route53:GetHostedZone",
+                      "route53:ChangeResourceRecordSets"
+                  ],
+                  "Resource": "*"
+              }, {
+                "Effect": "Allow",
+                "Action": [
+                  "ec2:DescribeTags",
+                  "ec2:DescribeInstances",
+                  "ec2:CreateTags"
+                ],
+                "Resource": "*"
+            } ]
+          }
+        } ]
+      }
+    }
+  },
+  
+  "Outputs" : {
+    "ELBEndpoint" : {
+      "Description" : "ELBEndpoint",
+      "Value"                : {
+        "Fn::If": [ "IsInternalService", { "Fn::GetAtt" : [ "IntELB", "DNSName" ] },
+          { "Fn::GetAtt" : [ "ELB", "DNSName" ] } ] }
+    }
+  }
+}

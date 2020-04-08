@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# AWS CLI profile to use.
+# CLI_PROFILE="" if you're just using default
+CLI_PROFILE=" --profile PROFILE_NAME"
+
+# S3 Bucket locations
+S3_CONFIG="MY_CONFIG_BUCKET_NAME"
+S3_TEMPLATE="MY_CONFIG_BUCKET_NAME"
+
+# sync all files
+aws s3 sync $CLI_PROFILE cloudformation-templates/ s3://$S3_TEMPLATE/ --exclude "parent.json"
+aws s3 sync $CLI_PROFILE application-configs/ s3://$S3_CONFIG/
+
+# Make changes that we don't want to keep long term
+cp cloudformation-templates/parent.json /tmp/
+sed -i "s/cf-templates-apac/${S3_TEMPLATE}/g" /tmp/parent.json
+aws s3 $CLI_PROFILE cp /tmp/parent.json s3://$S3_TEMPLATE/
