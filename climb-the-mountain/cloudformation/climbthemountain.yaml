@@ -1,0 +1,409 @@
+---
+Parameters:
+  DeploymentCloudformationLocation:
+    Description: HTTP/S path to folder containing CloudFormation template. Do not end with a slash.
+    Type: String
+    Default: https://deploy-bucket.s3-ap-southeast-2.amazonaws.com
+
+  DeploymentArtifactLocation:
+    Description: HTTP/S path to deployment artifacts (application data, data seed, etc). Do not end with a slash.
+    Type: String
+    Default: https://application-bucket.s3-ap-southeast-2.amazonaws.com
+
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must contain only alpha numeric characters and dashes."
+    Default: Appname-Staging
+
+  CertificateARN:
+    Description: ARN of a pre-configured certificate located in AWS Certificate Manager.
+    Type: String
+    Default: arn:aws:iam::123456789012:server-certificate/my.example.com
+
+  StackKeyName:
+    Description: Keypair used for the stack
+    Type: "AWS::EC2::KeyPair::KeyName"
+    ConstraintDescription: "must be the name of an existing EC2 KeyPair."
+
+  WebApp1InstanceType:
+    Description: InstanceType of Web App1
+    Type: String
+    Default: t2.small
+
+  WebApp1ImageId:
+    Description: ImageId(AMI) of Web App1
+    Type: "AWS::EC2::Image::Id"
+    Default: ami-02d7e25c1cfdd5695
+
+  DatabaseRootUser:
+    Description: Root user name of the database instance to be created.
+    Type: String
+    Default: root
+
+  DatabaseRootPassword:
+    Description: Root user password of the database instance to be created.
+    Type: String
+    NoEcho: true
+    MinLength: 6
+
+  DatabaseAppUser:
+    Description: Application user name of the database instance to be created.
+    Type: String
+    Default: appuser
+
+  DatabaseAppPassword:
+    Description: Application user password of the database instance to be created.
+    Type: String
+    NoEcho: true
+    MinLength: 6
+
+  YourIPAddress:
+    Description: Your office public IP address - used for locking down SSH access
+    Type: String
+    Default: 123.45.67.89
+
+Resources:
+  CoreNetwork:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/CoreNetwork.yaml" ] ]
+
+  SecurityGroups:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: CoreNetwork
+    Properties:
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VirtualPrivateNetwork: !GetAtt CoreNetwork.Outputs.VPC1
+        YourIPAddress: !Ref YourIPAddress
+      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/SecurityGroups.yaml" ] ]
+
+  Database:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: SecurityGroups
+    Properties:
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        Subnet1: !GetAtt CoreNetwork.Outputs.PublicSubnet1
+        Subnet2: !GetAtt CoreNetwork.Outputs.PublicSubnet2
+        SecurityGroup: !GetAtt SecurityGroups.Outputs.DatabaseSecurityGroup
+        DatabaseUserName: !Ref DatabaseRootUser
+        DatabaseUserPassword: !Ref DatabaseRootPassword
+      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/Database.yaml" ] ]
+
+  AppConfigService:
+    Type: AWS::Route53::HostedZone
+    DependsOn: CoreNetwork
+    Properties:
+      Name: configserver.lol
+      VPCs:
+        - VPCId: !GetAtt CoreNetwork.Outputs.VPC1
+          VPCRegion: !Ref AWS::Region
+
+  AppConfig1:
+    Type: AWS::Route53::RecordSet
+    DependsOn: AppConfigService
+    Properties:
+      HostedZoneId: !Ref AppConfigService
+      TTL: 60
+      Type: TXT
+      Name: db-app-user.configserver.lol
+      ResourceRecords:
+        - !Sub '"${DatabaseAppUser}"'
+
+  AppConfig2:
+    Type: AWS::Route53::RecordSet
+    DependsOn: AppConfigService
+    Properties:
+      HostedZoneId: !Ref AppConfigService
+      TTL: 60
+      Type: TXT
+      Name: db-app-pass.configserver.lol
+      ResourceRecords:
+        - !Sub '"${DatabaseAppPassword}"'
+
+  AppConfig3:
+    Type: AWS::Route53::RecordSet
+    DependsOn: AppConfigService
+    Properties:
+      HostedZoneId: !Ref AppConfigService
+      TTL: 60
+      Type: TXT
+      Name: db-root-user.configserver.lol
+      ResourceRecords:
+        - !Sub '"${DatabaseRootUser}"'
+
+  AppConfig4:
+    Type: AWS::Route53::RecordSet
+    DependsOn: AppConfigService
+    Properties:
+      HostedZoneId: !Ref AppConfigService
+      TTL: 60
+      Type: TXT
+      Name: db-root-pass.configserver.lol
+      ResourceRecords:
+        - !Sub '"${DatabaseRootPassword}"'
+
+  AppConfig5:
+    Type: AWS::Route53::RecordSet
+    DependsOn:
+      - AppConfigService
+      - Database
+    Properties:
+      HostedZoneId: !Ref AppConfigService
+      TTL: 60
+      Type: TXT
+      Name: db-host.configserver.lol
+      ResourceRecords:
+        - !Join
+          - ''
+          - - '"'
+            - !GetAtt Database.Outputs.Hostname
+            - '"'
+
+  TomcatWebapp:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - Database
+      - AppConfig5
+    Properties:
+      Parameters:
+        EnvironmentName: !Sub ${EnvironmentName}-Tomcat
+        ScalingMax: 2
+        ScalingMin: 1
+        SecurityGroup: !GetAtt SecurityGroups.Outputs.WebAppSecurityGroup
+        WebAppInstanceType: !Ref WebApp1InstanceType
+        WebAppImageId: !Ref WebApp1ImageId
+        StackKeyName: !Ref StackKeyName
+        VirtualPrivateNetwork: !GetAtt CoreNetwork.Outputs.VPC1
+        Subnet1: !GetAtt CoreNetwork.Outputs.PublicSubnet1
+        Subnet2: !GetAtt CoreNetwork.Outputs.PublicSubnet2
+        LaunchScript:
+          'Fn::Base64': !Sub |
+            #!/bin/bash -ex
+            
+            apt update && apt install -y tomcat8 nginx-light
+
+            cat > /etc/nginx/sites-enabled/default <<EOF
+              # Proxy to localtomcat
+              #
+              server {
+                listen 80;
+
+                location / {
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_pass_request_headers on;
+                  proxy_pass http://localhost:8080/helloworld/ImageServlet;
+                }
+
+                location /health {
+                  return 200 'OK';
+                  add_header Content-Type text/plain;
+                }
+              }
+            EOF
+
+            service nginx reload
+
+            # Download application
+            wget -q --header="Referer: PaSsWoRd" \
+              ${DeploymentArtifactLocation}/helloworld.war \
+              -O /var/lib/tomcat8/webapps/helloworld.war
+
+            # Get database creds
+            function get_record ()
+            {
+                dig +short -t txt $1.configserver.lol | cut -b 2- | rev | cut -b 2- | rev
+            }
+
+            DB_USER=$(get_record db-app-user)
+            DB_PASS=$(get_record db-app-pass)
+            DB_HOST=$(get_record db-host)
+
+            # Application variables
+            {
+              echo MYSQL_USER=$DB_USER
+              echo MYSQL_PASS=$DB_PASS
+              echo MYSQL_URL=jdbc:mysql://$DB_HOST:3306/climbthemountain
+            } >> /etc/default/tomcat8
+
+            service tomcat8 restart
+      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/WebApplication.yaml" ] ]
+
+  WebsocketProxyWebapp:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: SecurityGroups
+    Properties:
+      Parameters:
+        EnvironmentName: !Sub ${EnvironmentName}-WebsocketProxy
+        ScalingMax: 2
+        ScalingMin: 1
+        SecurityGroup: !GetAtt SecurityGroups.Outputs.WebAppSecurityGroup
+        WebAppInstanceType: !Ref WebApp1InstanceType
+        WebAppImageId: !Ref WebApp1ImageId
+        StackKeyName: !Ref StackKeyName
+        VirtualPrivateNetwork: !GetAtt CoreNetwork.Outputs.VPC1
+        Subnet1: !GetAtt CoreNetwork.Outputs.PublicSubnet1
+        Subnet2: !GetAtt CoreNetwork.Outputs.PublicSubnet2
+        LaunchScript:
+          'Fn::Base64': !Sub |
+            #!/bin/bash -ex
+            
+            # Install deps
+            apt-get update && \
+              apt-get -y install nginx-light
+
+            cat > /etc/nginx/sites-enabled/default <<EOF
+              # Proxy to echo.websocket.org
+              #
+              server {
+                      listen 80;
+
+                      resolver 1.1.1.1;
+
+                      location / {
+                              proxy_set_header Host echo.websocket.org;
+                              proxy_set_header X-Real-IP \$remote_addr;
+                              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                              proxy_set_header X-Forwarded-Proto \$scheme;
+                              proxy_pass_request_headers on;
+                              proxy_pass https://echo.websocket.org\$uri\$1\$is_args\$args;
+                              proxy_http_version 1.1;
+                              proxy_set_header Upgrade \$http_upgrade;
+                              proxy_set_header Connection "Upgrade";
+                      }
+
+                      location /health {
+                        return 200 'OK';
+                        add_header Content-Type text/plain;
+                      }
+              }
+            EOF
+
+            service nginx reload
+      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/WebApplication.yaml" ] ]
+
+  Bastion:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - SecurityGroups
+      - AppConfig5
+    Properties:
+      InstanceType: !Ref WebApp1InstanceType
+      ImageId: !Ref WebApp1ImageId
+      BlockDeviceMappings: 
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+            VolumeSize: "10"
+      UserData:
+        'Fn::Base64': !Sub |
+          #!/bin/bash -ex
+          
+          # Install deps
+          apt-get update && \
+            apt-get -y install curl mysql-client
+
+          # Get database creds
+          function get_record ()
+          {
+              dig +short -t txt $1.configserver.lol | cut -b 2- | rev | cut -b 2- | rev
+          }
+
+          MYSQL_USER=$(get_record db-root-user)
+          export MYSQL_PWD=$(get_record db-root-pass)
+          export MYSQL_HOST=$(get_record db-host)
+          MYSQL_APP_USER=$(get_record db-app-user)
+          MYSQL_APP_PASS=$(get_record db-app-pass)
+
+          # Seed application data
+          cd /root
+          wget -q --header="Referer: PaSsWoRd" ${DeploymentArtifactLocation}/mysql_create.sql
+          wget -q --header="Referer: PaSsWoRd" ${DeploymentArtifactLocation}/PI_SQLogo.png
+
+          cat mysql_create.sql | mysql -u $MYSQL_USER || true
+
+          BINARY_DATA=$(xxd -p PI_SQLogo.png | tr -d '\n')
+          mysql -u $MYSQL_USER -e "update climbthemountain.photos set photo=x'$BINARY_DATA' where picid=1"
+
+          # Add application user, AWS RDS doesn't allow direct manipulation of user data
+          mysql -u $MYSQL_USER -e "CREATE USER '$MYSQL_APP_USER'@'%' IDENTIFIED BY '$MYSQL_APP_PASS'"
+          mysql -u $MYSQL_USER -e "GRANT ALL PRIVILEGES ON climbthemountain.* TO '$MYSQL_APP_USER'@'%'"
+      KeyName: !Ref StackKeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination : true
+          SubnetId: !GetAtt CoreNetwork.Outputs.PublicSubnet1
+          DeviceIndex: 0
+          GroupSet:
+            - !GetAtt SecurityGroups.Outputs.BastionSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-Bastion
+
+  LoadBalancer:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    DependsOn: SecurityGroups
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups:
+        - !GetAtt SecurityGroups.Outputs.LoadBalancerSecurityGroup
+      Subnets:
+        - !GetAtt CoreNetwork.Outputs.PublicSubnet1
+        - !GetAtt CoreNetwork.Outputs.PublicSubnet2
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: 120
+      Name: !Ref EnvironmentName
+
+  LoadBalancerHttpListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    DependsOn: LoadBalancer
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !GetAtt TomcatWebapp.Outputs.TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  LoadBalancerHttpsListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    DependsOn: LoadBalancer
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref CertificateARN
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !GetAtt TomcatWebapp.Outputs.TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+
+  LoadBalancerHttpsListenerWebsocketsRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    DependsOn: LoadBalancerHttpsListener
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !GetAtt WebsocketProxyWebapp.Outputs.TargetGroup
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: Upgrade
+            Values:
+              - websocket
+      ListenerArn: !Ref LoadBalancerHttpsListener
+      Priority: 1
+
+Outputs:
+  LoadBalancerAddress:
+    Description: Remember to create/update a CNAME record to point to this
+    Value: !GetAtt LoadBalancer.DNSName

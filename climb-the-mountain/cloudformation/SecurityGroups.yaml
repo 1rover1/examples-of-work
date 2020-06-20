@@ -1,0 +1,126 @@
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must contain only alpha numeric characters and dashes."
+    Default: Appname-Staging
+
+  VirtualPrivateNetwork:
+    Description: AWS VPC to add the security groups to
+    Type: AWS::EC2::VPC::Id
+
+  YourIPAddress:
+    Description: Your office public IP address - used for locking down SSH access
+    Type: String
+    Default: 123.45.67.89
+
+Resources:
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "alb-sg"
+      GroupDescription: "Security group for Application Load Balancer"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: "0"
+          ToPort: "65535"
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VirtualPrivateNetwork
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} ALB
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "bastion-sg"
+      GroupDescription: "Security group for bastion host"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: "0"
+          ToPort: "65535"
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Join [ "", [ !Ref YourIPAddress, "/32" ] ]
+      VpcId: !Ref VirtualPrivateNetwork
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Bastion
+
+  WebAppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "webapp-sg"
+      GroupDescription: "Security group for WebApp"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: "0"
+          ToPort: "65535"
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      VpcId: !Ref VirtualPrivateNetwork
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} WebApp
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "database-sg"
+      GroupDescription: "Security group for MySQL database"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebAppSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      VpcId: !Ref VirtualPrivateNetwork
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} MySQL
+
+Outputs:
+  LoadBalancerSecurityGroup:
+    Description: Security group for load balancer
+    Value: !Ref LoadBalancerSecurityGroup
+
+  BastionSecurityGroup:
+    Description: Security group for bastion
+    Value: !Ref BastionSecurityGroup
+
+  WebAppSecurityGroup:
+    Description: Security group for web application
+    Value: !Ref WebAppSecurityGroup
+
+  DatabaseSecurityGroup:
+    Description: Security group for database
+    Value: !Ref DatabaseSecurityGroup

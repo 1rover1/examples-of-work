@@ -1,0 +1,79 @@
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must contain only alpha numeric characters and dashes."
+    Default: Appname-Staging
+
+  Subnet1:
+    Description: Subnet to load the web applciation
+    Type: AWS::EC2::Subnet::Id
+
+  Subnet2:
+    Description: Subnet to load the web applciation
+    Type: AWS::EC2::Subnet::Id
+
+  SecurityGroup:
+    Description: Security group this application belongs to
+    Type: AWS::EC2::SecurityGroup::Id
+
+  DatabaseUserName:
+    Description: Master user name of the database instance to be created.
+    Type: String
+    Default: potatoes
+
+  DatabaseUserPassword:
+    Description: Master user password of the database instance to be created.
+    Type: String
+    NoEcho: true
+    Default: potatoes
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: SubnetGroup for database cluster1
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}
+
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    DependsOn: DBSubnetGroup
+    Properties:
+      Engine: aurora
+      EngineVersion: 5.6.10a
+      MasterUsername: !Ref DatabaseUserName
+      MasterUserPassword: !Ref DatabaseUserPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref SecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} cluster
+    DeletionPolicy: Snapshot
+
+  DbServer:
+    Type: AWS::RDS::DBInstance
+    DependsOn: DatabaseCluster
+    Properties:
+      Engine: aurora
+      EngineVersion: 5.6.10a
+      DBClusterIdentifier: !Ref DatabaseCluster
+      DBInstanceClass: db.t2.small
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Database
+
+Outputs:
+  Instance:
+    Description: The database
+    Value: !Ref DbServer
+  Hostname:
+    Description: The hostname for the database
+    Value: !GetAtt DbServer.Endpoint.Address

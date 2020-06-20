@@ -1,0 +1,100 @@
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+    AllowedPattern: "[a-zA-Z0-9-]+"
+    ConstraintDescription: "must contain only alpha numeric characters and dashes."
+    Default: Appname-Staging
+
+  ScalingMin:
+    Description: Minimum instance count for the scaling group
+    Type: String
+
+  ScalingMax:
+    Description: Maximum instance count for the scaling group
+    Type: String
+
+  WebAppInstanceType:
+    Description: InstanceType of web app
+    Type: String
+    Default: t2.small
+
+  WebAppImageId:
+    Description: ImageId(AMI) of web app
+    Type: "AWS::EC2::Image::Id"
+    Default: ami-02d7e25c1cfdd5695
+
+  StackKeyName:
+    Description: Keypair used for the stack
+    Type: "AWS::EC2::KeyPair::KeyName"
+    ConstraintDescription: "must be the name of an existing EC2 KeyPair."
+
+  SecurityGroup:
+    Description: Security group this application belongs to
+    Type: AWS::EC2::SecurityGroup::Id
+
+  VirtualPrivateNetwork:
+    Description: AWS VPC to add the security groups to
+    Type: AWS::EC2::VPC::Id
+
+  Subnet1:
+    Description: Subnet to load the web applciation
+    Type: AWS::EC2::Subnet::Id
+
+  Subnet2:
+    Description: Subnet to load the web applciation
+    Type: AWS::EC2::Subnet::Id
+
+  LaunchScript:
+    Description: EC2 instance UserData to be executed upon startup
+    Type: String
+
+Resources:
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      ImageId: !Ref WebAppImageId
+      InstanceType: !Ref WebAppInstanceType
+      KeyName: !Ref StackKeyName
+      SecurityGroups:
+        - !Ref SecurityGroup
+      UserData: !Ref LaunchScript
+      LaunchConfigurationName: !Ref EnvironmentName
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VirtualPrivateNetwork
+      Name: !Ref EnvironmentName
+
+  ScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Ref EnvironmentName
+      AvailabilityZones:
+        - !Select [ 0, !GetAZs '' ]
+        - !Select [ 1, !GetAZs '' ]
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      MaxSize: !Ref ScalingMax
+      MinSize: !Ref ScalingMin
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      TerminationPolicies: 
+        - OldestInstance
+      VPCZoneIdentifier:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+          PropagateAtLaunch: true
+
+
+
+Outputs:
+  TargetGroup:
+    Description: TargetGroup to be associated with a load balancer
+    Value: !Ref TargetGroup
