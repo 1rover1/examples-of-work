@@ -1,10 +1,5 @@
 ---
 Parameters:
-  DeploymentCloudformationLocation:
-    Description: HTTP/S path to folder containing CloudFormation template. Do not end with a slash.
-    Type: String
-    Default: https://deploy-bucket.s3-ap-southeast-2.amazonaws.com
-
   DeploymentArtifactLocation:
     Description: HTTP/S path to deployment artifacts (application data, data seed, etc). Do not end with a slash.
     Type: String
@@ -70,7 +65,7 @@ Resources:
     Properties:
       Parameters:
         EnvironmentName: !Ref EnvironmentName
-      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/CoreNetwork.yaml" ] ]
+      TemplateURL: CoreNetwork.yaml
 
   SecurityGroups:
     Type: AWS::CloudFormation::Stack
@@ -80,7 +75,7 @@ Resources:
         EnvironmentName: !Ref EnvironmentName
         VirtualPrivateNetwork: !GetAtt CoreNetwork.Outputs.VPC1
         YourIPAddress: !Ref YourIPAddress
-      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/SecurityGroups.yaml" ] ]
+      TemplateURL: SecurityGroups.yaml
 
   Database:
     Type: AWS::CloudFormation::Stack
@@ -93,7 +88,7 @@ Resources:
         SecurityGroup: !GetAtt SecurityGroups.Outputs.DatabaseSecurityGroup
         DatabaseUserName: !Ref DatabaseRootUser
         DatabaseUserPassword: !Ref DatabaseRootPassword
-      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/Database.yaml" ] ]
+      TemplateURL: Database.yaml
 
   AppConfigService:
     Type: AWS::Route53::HostedZone
@@ -234,7 +229,7 @@ Resources:
             } >> /etc/default/tomcat8
 
             service tomcat8 restart
-      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/WebApplication.yaml" ] ]
+      TemplateURL: WebApplication.yaml
 
   WebsocketProxyWebapp:
     Type: AWS::CloudFormation::Stack
@@ -287,7 +282,7 @@ Resources:
             EOF
 
             service nginx reload
-      TemplateURL: !Join [ "", [ !Ref DeploymentCloudformationLocation, "/WebApplication.yaml" ] ]
+      TemplateURL: WebApplication.yaml
 
   Bastion:
     Type: AWS::EC2::Instance

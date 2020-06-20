@@ -6,42 +6,43 @@ if [ $# -ne 1 ]
     exit 1
 fi
 
-# config items
-
+# AWS CLI config
 export AWS_PROFILE="climbthemountain"
 export AWS_DEFAULT_REGION="ap-southeast-2"
 
+# Deployment config
 STACK_NAME=$1
+STACK_DEPLOY_BUCKET="this-is-my-deploy-bucket"
 
-CLOUDFORMATION_BUCKET="this-is-my-deploy-bucket"
-CLOUDFORMATION_LOCATION="https://$CLOUDFORMATION_BUCKET.s3-ap-southeast-2.amazonaws.com"
+# Stack variables
 
-TEMPFILE=$( mktemp )
-cat > $TEMPFILE <<- EOM
+TMP_CF_PARAMS=$( mktemp )
+cat > $TMP_CF_PARAMS <<- EOM
 [
-  {"ParameterKey": "StackKeyName",                      "ParameterValue": "climbthemountain"},
-  {"ParameterKey": "CertificateARN",                    "ParameterValue": "arn:aws:acm:ap-northeast-1:401074448412:certificate/44479900-8a0e-4a02-ac99-ca0520104412"},
-  {"ParameterKey": "EnvironmentName",                   "ParameterValue": "climbthemountain"},
-  {"ParameterKey": "DeploymentArtifactLocation",        "ParameterValue": "https://this-is-my-application-bucket.s3-ap-southeast-2.amazonaws.com"},
-  {"ParameterKey": "DeploymentCloudformationLocation",  "ParameterValue": "$CLOUDFORMATION_LOCATION"},
-  {"ParameterKey": "WebApp1ImageId",                    "ParameterValue": "ami-03344c819e1ac354d"},
-  {"ParameterKey": "DatabaseRootUser",                  "ParameterValue": "rootuser"},
-  {"ParameterKey": "DatabaseRootPassword",              "ParameterValue": "Password123456"},
-  {"ParameterKey": "DatabaseAppUser",                   "ParameterValue": "climbthemountain"},
-  {"ParameterKey": "DatabaseAppPassword",               "ParameterValue": "TCsOrv6dMhwmSEf1"},
-  {"ParameterKey": "YourIPAddress",                     "ParameterValue": "$( curl -s http://icanhazip.com )"}
+  {"ParameterKey": "StackKeyName",                 "ParameterValue": "climbthemountain"},
+  {"ParameterKey": "CertificateARN",               "ParameterValue": "arn:aws:acm:ap-northeast-1:401074448412:certificate/44479900-8a0e-4a02-ac99-ca0520104412"},
+  {"ParameterKey": "EnvironmentName",              "ParameterValue": "climbthemountain"},
+  {"ParameterKey": "DeploymentArtifactLocation",   "ParameterValue": "https://this-is-my-application-bucket.s3-ap-southeast-2.amazonaws.com"},
+  {"ParameterKey": "WebApp1ImageId",               "ParameterValue": "ami-04fcc97b5f6edcd89"},
+  {"ParameterKey": "DatabaseRootUser",             "ParameterValue": "rootuser"},
+  {"ParameterKey": "DatabaseRootPassword",         "ParameterValue": "Password123456"},
+  {"ParameterKey": "DatabaseAppUser",              "ParameterValue": "climbthemountain"},
+  {"ParameterKey": "DatabaseAppPassword",          "ParameterValue": "TCsOrv6dMhwmSEf1"},
+  {"ParameterKey": "YourIPAddress",                "ParameterValue": "$( curl -s http://icanhazip.com )"}
 ]
 EOM
    
-# upload all cloudformation files
-aws s3 sync --no-progress \
-    cloudformation/ \
-    s3://$CLOUDFORMATION_BUCKET
+# Package and deploy
 
-sleep 2 # Give AWS S3 a chance to sync internally
+TMP_CF_PARENT=$( mktemp )
+aws cloudformation package \
+  --template-file cloudformation/climbthemountain.yaml \
+  --s3-bucket $STACK_DEPLOY_BUCKET \
+  --output-template-file $TMP_CF_PARENT
+
 
 aws cloudformation create-stack \
-   --stack-name $STACK_NAME \
-   --template-url $CLOUDFORMATION_LOCATION/climbthemountain.yaml \
-   --parameters file://$TEMPFILE \
-   --output text
+  --stack-name $STACK_NAME \
+  --template-body file://$TMP_CF_PARENT \
+  --parameters file://$TMP_CF_PARAMS \
+  --output text
