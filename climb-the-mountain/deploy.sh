@@ -20,7 +20,7 @@ TMP_CF_PARAMS=$( mktemp )
 cat > $TMP_CF_PARAMS <<- EOM
 [
   {"ParameterKey": "StackKeyName",                 "ParameterValue": "climbthemountain"},
-  {"ParameterKey": "CertificateARN",               "ParameterValue": "arn:aws:acm:ap-northeast-1:401074448412:certificate/44479900-8a0e-4a02-ac99-ca0520104412"},
+  {"ParameterKey": "CertificateARN",               "ParameterValue": "arn:aws:acm:ap-southeast-2:124091754394:certificate/ebb3927c-4e09-44d1-9eeb-d938bff8cc92"},
   {"ParameterKey": "EnvironmentName",              "ParameterValue": "climbthemountain"},
   {"ParameterKey": "DeploymentArtifactLocation",   "ParameterValue": "https://this-is-my-application-bucket.s3-ap-southeast-2.amazonaws.com"},
   {"ParameterKey": "WebApp1ImageId",               "ParameterValue": "ami-04fcc97b5f6edcd89"},
