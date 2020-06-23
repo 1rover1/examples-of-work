@@ -83,8 +83,8 @@ Resources:
     Properties:
       Parameters:
         EnvironmentName: !Ref EnvironmentName
-        Subnet1: !GetAtt CoreNetwork.Outputs.PublicSubnet1
-        Subnet2: !GetAtt CoreNetwork.Outputs.PublicSubnet2
+        Subnet1: !GetAtt CoreNetwork.Outputs.PrivateSubnet1
+        Subnet2: !GetAtt CoreNetwork.Outputs.PrivateSubnet2
         SecurityGroup: !GetAtt SecurityGroups.Outputs.DatabaseSecurityGroup
         DatabaseUserName: !Ref DatabaseRootUser
         DatabaseUserPassword: !Ref DatabaseRootPassword
@@ -175,8 +175,8 @@ Resources:
         WebAppImageId: !Ref WebApp1ImageId
         StackKeyName: !Ref StackKeyName
         VirtualPrivateNetwork: !GetAtt CoreNetwork.Outputs.VPC1
-        Subnet1: !GetAtt CoreNetwork.Outputs.PublicSubnet1
-        Subnet2: !GetAtt CoreNetwork.Outputs.PublicSubnet2
+        Subnet1: !GetAtt CoreNetwork.Outputs.PrivateSubnet1
+        Subnet2: !GetAtt CoreNetwork.Outputs.PrivateSubnet2
         LaunchScript:
           'Fn::Base64': !Sub |
             #!/bin/bash -ex
@@ -244,8 +244,8 @@ Resources:
         WebAppImageId: !Ref WebApp1ImageId
         StackKeyName: !Ref StackKeyName
         VirtualPrivateNetwork: !GetAtt CoreNetwork.Outputs.VPC1
-        Subnet1: !GetAtt CoreNetwork.Outputs.PublicSubnet1
-        Subnet2: !GetAtt CoreNetwork.Outputs.PublicSubnet2
+        Subnet1: !GetAtt CoreNetwork.Outputs.PrivateSubnet1
+        Subnet2: !GetAtt CoreNetwork.Outputs.PrivateSubnet2
         LaunchScript:
           'Fn::Base64': !Sub |
             #!/bin/bash -ex
