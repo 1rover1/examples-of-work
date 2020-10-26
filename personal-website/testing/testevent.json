@@ -1,0 +1,38 @@
+{
+    "Records": [
+        {
+            "eventVersion": "2.1",
+            "eventSource": "aws:s3",
+            "awsRegion": "us-east-1",
+            "eventTime": "2020-10-24T22:18:54.950Z",
+            "eventName": "ObjectCreated:Put",
+            "userIdentity": {
+                "principalId": "AWS:AIDARZZDR46NCL7DZM3K5"
+            },
+            "requestParameters": {
+                "sourceIPAddress": "101.174.202.198"
+            },
+            "responseElements": {
+                "x-amz-request-id": "7N6Y2N2HDV6W3R3J",
+                "x-amz-id-2": "l4L5zr0P9AOxNy8Jy92bylLgnHU5LGURh6zhojJwEibY/iPSy5kUwg28sk6cskSAHUTddbozuNeveQ4hPoxyLLwZr6Er2f4P"
+            },
+            "s3": {
+                "s3SchemaVersion": "1.0",
+                "configurationId": "tf-s3-lambda-20200827120743746000000001",
+                "bucket": {
+                    "name": "terraform-20200809035102209800000001",
+                    "ownerIdentity": {
+                        "principalId": "A3ONRM7X21JVXG"
+                    },
+                    "arn": "arn:aws:s3:::terraform-20200809035102209800000001"
+                },
+                "object": {
+                    "key": "uploads/test.jpg",
+                    "size": 5,
+                    "eTag": "cc9067c2ee470dc248b14b194209a34e",
+                    "sequencer": "005F94A8531DC0752D"
+                }
+            }
+        }
+    ]
+}
