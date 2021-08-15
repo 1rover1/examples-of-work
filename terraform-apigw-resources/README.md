@@ -44,11 +44,11 @@ resource "aws_api_gateway_resource" "stuff" {
 }
 ```
 
-This works okay for small any relatively static API's but once you start to scale up (in terms of either devs working on the project or number of API endpoints) adding, removing or otherwise changing resources can become tricky:
+This works okay for small and relatively static API's but once you start to scale up (in terms of project contributors or number of API endpoints) making changes to resources can become tricky:
 
 * Naming standards for resources can help. In the above example I'm basically including the directory structure in the resource name (see `things-id-foo`) so that I don't clash with another endpoint that named foo.
 * Mapping out individual path parts is not self-documenting and you need to build up at least part of the tree in your head to work with it.
-* This whole process is slower or more complicated than it needs to be .
+* This whole process is slower or more complicated than it needs to be.
 
 Our largest API at work contains around 350 path parts and has dozens of contributors. The code I've explored here is an attempt to address some of the issues faced. 
 
@@ -225,6 +225,6 @@ It's a bit hacky but works well if your message and variable names are descripti
 
 ## Conclusion
 
-As noted above defining each directory depth is not ideal. As long as the error handling is implemented it should save a lot of time for large projects with multiple contributors.
+As noted above defining each directory depth is not ideal. However in a large project it's probably only 10-15 resources definitions maximum and with error handling implemented it should save a lot of time in the long run.
 
 I only wish I'd implemented this earlier at work :)
